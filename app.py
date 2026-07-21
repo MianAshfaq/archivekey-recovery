@@ -6,10 +6,12 @@ import queue
 import sys
 import threading
 import tkinter as tk
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from archivekey.candidates import generate_ranked_candidates
 from archivekey.engine import RecoveryConfig, RecoveryEngine
 from archivekey.tools import Toolchain
 
@@ -311,7 +313,7 @@ class ArchiveKeyApp(tk.Tk):
             card,
             "STEP 02",
             "What do you remember?",
-            "Add uncertain password variations or meaningful fragments.",
+            "Both boxes are mutated and mixed into a ranked recovery plan.",
         )
         columns = tk.Frame(card, bg=COLORS["surface"])
         columns.pack(fill="both", expand=True, padx=18, pady=(0, 17))
@@ -319,8 +321,8 @@ class ArchiveKeyApp(tk.Tk):
         columns.grid_columnconfigure(1, weight=1, uniform="clues")
         columns.grid_rowconfigure(1, weight=1, minsize=96)
 
-        self._field_label(columns, "POSSIBLE PASSWORD GUESSES", 0, 0)
-        self._field_label(columns, "CLUE WORDS & PATTERNS", 0, 1, padx=(8, 0))
+        self._field_label(columns, "PASSWORD GUESSES  ·  MUTATED", 0, 0)
+        self._field_label(columns, "CLUE WORDS & PATTERNS  ·  MIXED", 0, 1, padx=(8, 0))
         self.exact_text = self._text_field(columns, "An old password variation")
         self.clue_text = self._text_field(columns, "Names, places, years, symbols")
         self.exact_text.grid(row=1, column=0, sticky="nsew", pady=(6, 0), padx=(0, 8))
@@ -340,14 +342,8 @@ class ArchiveKeyApp(tk.Tk):
         self._entry(content, self.limit_var).grid(row=1, column=1, sticky="ew", padx=(14, 0), pady=(6, 0))
         tools = tk.Frame(content, bg=COLORS["surface"])
         tools.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
-        self._button(tools, "Check installed tools", self._check_tools).pack(side="left")
-        tk.Label(
-            tools,
-            text="Detects WinRAR / UnRAR and 7-Zip for extraction",
-            bg=COLORS["surface"],
-            fg=COLORS["subtle"],
-            font=("Segoe UI", 8),
-        ).pack(side="left", padx=(10, 0))
+        self._button(tools, "Preview generated mix", self._preview_mix).pack(side="left")
+        self._button(tools, "Check installed tools", self._check_tools).pack(side="left", padx=(8, 0))
 
     def _build_status_card(self, parent: tk.Widget) -> None:
         card = self._card(parent)
@@ -616,6 +612,57 @@ class ArchiveKeyApp(tk.Tk):
             "Installed extraction tools",
             "ArchiveKey uses these local programs only to verify and extract a recovered archive.\n\n"
             f"{description}",
+        )
+
+    def _preview_mix(self) -> None:
+        try:
+            limit = int(self.limit_var.get())
+            if not 1 <= limit <= 5_000_000:
+                raise ValueError("Candidate limit must be between 1 and 5,000,000.")
+            guesses = self._lines(self.exact_text)
+            clues = self._lines(self.clue_text)
+            if not guesses and not clues:
+                raise ValueError("Add at least one password guess or remembered clue first.")
+            preview_limit = min(limit, 50_000)
+            ranked = generate_ranked_candidates(
+                guesses,
+                clues,
+                self._parse_years(),
+                preview_limit,
+            )
+        except ValueError as exc:
+            messagebox.showerror("Cannot preview this plan", str(exc))
+            return
+
+        direct_count = sum(candidate.rule == "possible-guess" for candidate in ranked)
+        derived = [candidate for candidate in ranked if candidate.rule != "possible-guess"]
+        rule_counts = Counter(candidate.rule for candidate in derived)
+        strategy_text = "\n".join(
+            f"• {rule}: {count:,}" for rule, count in rule_counts.most_common(7)
+        )
+        example_text = "\n".join(
+            f"• {candidate.value}   ({candidate.rule})" for candidate in derived[:10]
+        )
+        capped_text = (
+            f"\nPreview capped at {preview_limit:,}; the full plan may be larger."
+            if len(ranked) == preview_limit and limit > preview_limit
+            else ""
+        )
+        messagebox.showinfo(
+            "Generated mix preview",
+            f"Inputs: {len(guesses)} guesses + {len(clues)} clues\n"
+            f"Plan preview: {len(ranked):,} candidates\n"
+            f"Supplied literally: {direct_count:,}\n"
+            f"Generated or mixed: {len(derived):,}{capped_text}\n\n"
+            f"Largest strategy groups:\n{strategy_text or '• Direct guesses only'}\n\n"
+            f"Generated examples:\n{example_text or '• No derived candidates'}",
+        )
+        self.status_var.set("Generated mix previewed")
+        self.status_detail_var.set(
+            f"{len(derived):,} derived candidates from {len(guesses) + len(clues)} remembered inputs."
+        )
+        self._log(
+            f"Preview: {direct_count:,} supplied candidates and {len(derived):,} generated/mixed candidates."
         )
 
     @staticmethod

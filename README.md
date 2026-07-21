@@ -47,6 +47,9 @@ Synthetic regression fixtures verify that high-probability structured candidates
 - Native RAR 5 header and file-encryption record parsing
 - Native RAR 5 PBKDF2-HMAC-SHA256 verification
 - Direct testing of uncertain password guesses before generated combinations
+- Adaptive mutation of guesses across case, numbers, separators, endings, and bounded leetspeak
+- Two-way mixing of guess-derived stems with remembered clue words and patterns
+- In-app generated-plan preview with strategy counts and example candidates
 - Probability-scored password grammar without leaked-password lists
 - Country/place aliases and acronym generation
 - `stem + separator + number + trailing symbol` rules using synthetic fixtures
@@ -88,7 +91,7 @@ python -m pip install -r requirements-build.txt
 .\build_msi.ps1
 ```
 
-The output is `dist\ArchiveKey-0.3.3-x64.msi`. The build script uses PyInstaller
+The output is `dist\ArchiveKey-0.4.0-x64.msi`. The build script uses PyInstaller
 and downloads the official portable WiX 3.14.1 tools into an ignored local build
 directory through GitHub CLI; those third-party binaries are never committed to
 this repository. Public alpha installers are currently unsigned, so Windows can

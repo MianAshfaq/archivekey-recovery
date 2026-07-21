@@ -6,6 +6,7 @@ import re
 import subprocess
 import threading
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,10 +72,30 @@ class RecoveryEngine:
             config.exact_passwords, config.clues, config.years, config.max_candidates
         )
         candidates = [candidate.value for candidate in ranked_candidates]
-        self.log(f"Generated {len(candidates):,} probability-ranked candidates.")
+        direct_count = sum(candidate.rule == "possible-guess" for candidate in ranked_candidates)
+        generated_count = len(ranked_candidates) - direct_count
+        self.log(
+            f"Plan inputs: {len(config.exact_passwords)} possible guesses and "
+            f"{len(config.clues)} remembered clues."
+        )
+        self.log(
+            f"Mutation engine built {len(candidates):,} probability-ranked candidates: "
+            f"{direct_count:,} supplied and {generated_count:,} generated/mixed."
+        )
         if ranked_candidates:
-            preview = ", ".join(candidate.value for candidate in ranked_candidates[:5])
-            self.log(f"First candidates: {preview}")
+            rule_counts = Counter(candidate.rule for candidate in ranked_candidates)
+            strategies = ", ".join(
+                f"{rule} ({count:,})" for rule, count in rule_counts.most_common(5)
+            )
+            self.log(f"Largest strategy groups: {strategies}.")
+            derived_preview = [
+                candidate for candidate in ranked_candidates if candidate.rule != "possible-guess"
+            ][:8]
+            if derived_preview:
+                preview = ", ".join(
+                    f"{candidate.value} [{candidate.rule}]" for candidate in derived_preview
+                )
+                self.log(f"Generated examples: {preview}")
         if not ranked_candidates:
             raise RecoveryError("Add at least one possible password guess or remembered clue.")
 

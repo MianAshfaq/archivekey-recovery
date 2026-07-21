@@ -36,6 +36,25 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(candidate.rule, "stem+separator+number+repeated-symbol")
         self.assertLess(result.index(candidate), 1_000)
 
+    def test_possible_guess_is_mutated_without_separate_clues(self):
+        result = generate_ranked_candidates(["BlueRiver@2042!"], [], [2041, 2042], 20_000)
+        values = [candidate.value for candidate in result]
+        self.assertEqual(values[0], "BlueRiver@2042!")
+        self.assertIn("blueriver@2042!", values)
+        self.assertIn("BlueRiver@2041!", values)
+        self.assertIn("BlueRiver@2042!!", values)
+        self.assertGreater(len(result), 1_000)
+
+    def test_possible_guess_is_mixed_with_clue_words(self):
+        result = generate_ranked_candidates(
+            ["Orion@246%"], ["NorthLake"], [2041, 2042], 30_000
+        )
+        by_value = {candidate.value: candidate for candidate in result}
+        self.assertEqual(by_value["Orion@2041%"].rule, "guess-number-mutation")
+        self.assertEqual(by_value["Orion@246%%"].rule, "guess-ending-mutation")
+        self.assertEqual(by_value["Orion@NorthLake"].rule, "stem+separator+stem")
+        self.assertEqual(by_value["NorthLake@Orion"].rule, "stem+separator+stem")
+
 
 if __name__ == "__main__":
     unittest.main()

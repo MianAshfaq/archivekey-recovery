@@ -34,7 +34,7 @@ if (-not (Test-Path -LiteralPath $candle) -or -not (Test-Path -LiteralPath $ligh
 }
 
 $wixObject = Join-Path $obj "ArchiveKey.wixobj"
-$msi = Join-Path $dist "ArchiveKey-0.3.3-x64.msi"
+$msi = Join-Path $dist "ArchiveKey-0.4.0-x64.msi"
 
 & $candle -nologo -arch x64 "-dSourceDir=$dist" "-dProjectRoot=$projectRoot" `
     -out $wixObject (Join-Path $installer "ArchiveKey.wxs")
