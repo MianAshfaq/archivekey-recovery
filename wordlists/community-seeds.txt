@@ -184,3 +184,215 @@ official
 original
 simple
 magic
+
+# Categorized geographic concepts for bounded pair weaving. The `weave:`
+# marker is metadata, not part of a generated candidate. This is a broad public
+# reference set rather than a user-specific password list.
+weave:Afghanistan
+weave:Albania
+weave:Algeria
+weave:Andorra
+weave:Angola
+weave:Antigua and Barbuda
+weave:Argentina
+weave:Armenia
+weave:Australia
+weave:Austria
+weave:Azerbaijan
+weave:Bahamas
+weave:Bahrain
+weave:Bangladesh
+weave:Barbados
+weave:Belarus
+weave:Belgium
+weave:Belize
+weave:Benin
+weave:Bhutan
+weave:Bolivia
+weave:Bosnia and Herzegovina
+weave:Botswana
+weave:Brazil
+weave:Brunei
+weave:Bulgaria
+weave:Burkina Faso
+weave:Burundi
+weave:Cabo Verde
+weave:Cambodia
+weave:Cameroon
+weave:Canada
+weave:Central African Republic
+weave:Chad
+weave:Chile
+weave:China
+weave:Colombia
+weave:Comoros
+weave:Congo
+weave:Costa Rica
+weave:Croatia
+weave:Cuba
+weave:Cyprus
+weave:Czechia
+weave:Denmark
+weave:Djibouti
+weave:Dominica
+weave:Dominican Republic
+weave:Ecuador
+weave:Egypt
+weave:El Salvador
+weave:Equatorial Guinea
+weave:Eritrea
+weave:Estonia
+weave:Eswatini
+weave:Ethiopia
+weave:Fiji
+weave:Finland
+weave:France
+weave:Gabon
+weave:Gambia
+weave:Georgia
+weave:Germany
+weave:Ghana
+weave:Greece
+weave:Grenada
+weave:Guatemala
+weave:Guinea
+weave:Guinea Bissau
+weave:Guyana
+weave:Haiti
+weave:Honduras
+weave:Hungary
+weave:Iceland
+weave:India
+weave:Indonesia
+weave:Iran
+weave:Iraq
+weave:Ireland
+weave:Israel
+weave:Italy
+weave:Ivory Coast
+weave:Jamaica
+weave:Japan
+weave:Jordan
+weave:Kazakhstan
+weave:Kenya
+weave:Kiribati
+weave:Kuwait
+weave:Kyrgyzstan
+weave:Laos
+weave:Latvia
+weave:Lebanon
+weave:Lesotho
+weave:Liberia
+weave:Libya
+weave:Liechtenstein
+weave:Lithuania
+weave:Luxembourg
+weave:Madagascar
+weave:Malawi
+weave:Malaysia
+weave:Maldives
+weave:Mali
+weave:Malta
+weave:Marshall Islands
+weave:Mauritania
+weave:Mauritius
+weave:Mexico
+weave:Micronesia
+weave:Moldova
+weave:Monaco
+weave:Mongolia
+weave:Montenegro
+weave:Morocco
+weave:Mozambique
+weave:Myanmar
+weave:Namibia
+weave:Nauru
+weave:Nepal
+weave:Netherlands
+weave:New Zealand
+weave:Nicaragua
+weave:Niger
+weave:Nigeria
+weave:North Korea
+weave:North Macedonia
+weave:Norway
+weave:Oman
+weave:Pakistan
+weave:Palau
+weave:Palestine
+weave:Panama
+weave:Papua New Guinea
+weave:Paraguay
+weave:Peru
+weave:Philippines
+weave:Poland
+weave:Portugal
+weave:Qatar
+weave:Romania
+weave:Russia
+weave:Rwanda
+weave:Saint Kitts and Nevis
+weave:Saint Lucia
+weave:Saint Vincent and the Grenadines
+weave:Samoa
+weave:San Marino
+weave:Sao Tome and Principe
+weave:Saudi Arabia
+weave:Saudi
+weave:Senegal
+weave:Serbia
+weave:Seychelles
+weave:Sierra Leone
+weave:Singapore
+weave:Slovakia
+weave:Slovenia
+weave:Solomon Islands
+weave:Somalia
+weave:South Africa
+weave:South Korea
+weave:South Sudan
+weave:Spain
+weave:Sri Lanka
+weave:Sudan
+weave:Suriname
+weave:Sweden
+weave:Switzerland
+weave:Syria
+weave:Taiwan
+weave:Tajikistan
+weave:Tanzania
+weave:Thailand
+weave:Timor Leste
+weave:Togo
+weave:Tonga
+weave:Trinidad and Tobago
+weave:Tunisia
+weave:Turkey
+weave:Turkmenistan
+weave:Tuvalu
+weave:Uganda
+weave:Ukraine
+weave:United Arab Emirates
+weave:UAE
+weave:United Kingdom
+weave:UK
+weave:United States
+weave:USA
+weave:Uruguay
+weave:Uzbekistan
+weave:Vanuatu
+weave:Vatican
+weave:Venezuela
+weave:Vietnam
+weave:Yemen
+weave:Zambia
+weave:Zimbabwe
+weave:Africa
+weave:America
+weave:Arabia
+weave:Asia
+weave:Caribbean
+weave:Europe
+weave:Gulf
+weave:Middle East
+weave:Oceania

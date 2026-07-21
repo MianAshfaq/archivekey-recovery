@@ -11,6 +11,7 @@ from dataclasses import dataclass
 COMMON_NUMBERS = ("123", "1234", "786", "1", "12", "007", "000", "111")
 COMMON_SEPARATORS = ("@", "", "_", "-", ".", "#", "!")
 TRAILING_SYMBOLS = ("!", "@", "#", "%", "$", "&", "*", "+", "_")
+COMMUNITY_WEAVE_PREFIX = "weave:"
 LEET_SUBSTITUTIONS: dict[str, tuple[str, ...]] = {
     "a": ("@", "4"),
     "e": ("3",),
@@ -164,6 +165,14 @@ def _shared_character_interleave(
     return "".join(output)
 
 
+def _community_seed(value: str) -> tuple[str, bool]:
+    """Decode an optional category marker from a downloaded public seed."""
+    value = value.strip()
+    if value.casefold().startswith(COMMUNITY_WEAVE_PREFIX):
+        return value[len(COMMUNITY_WEAVE_PREFIX) :].strip(), True
+    return value, False
+
+
 def generate_ranked_candidates(
     exact: Iterable[str],
     clues: Iterable[str],
@@ -199,7 +208,9 @@ def generate_ranked_candidates(
 
     guesses = list(_clean_lines(exact))
     remembered_clues = list(_clean_lines(clues))
-    community_seeds = list(_clean_lines(community))[:256]
+    community_entries = list(_clean_lines(community))[:512]
+    community_seeds = [_community_seed(entry) for entry in community_entries]
+    community_seeds = [(seed, weave) for seed, weave in community_seeds if seed]
 
     observed_numbers: list[str] = []
     observed_symbols: list[str] = []
@@ -268,8 +279,14 @@ def generate_ranked_candidates(
 
     community_bases: list[tuple[str, float, str]] = []
     seen_community_bases: set[str] = set()
-    for seed_index, seed in enumerate(community_seeds):
+    community_weave_concepts: list[str] = []
+    seen_weave_concepts: set[str] = set()
+    for seed_index, (seed, weave_enabled) in enumerate(community_seeds):
         seed_cost = 4.0 + _rank_cost(seed_index, 0.10)
+        seed_key = seed.casefold()
+        if weave_enabled and seed_key not in seen_weave_concepts:
+            seen_weave_concepts.add(seed_key)
+            community_weave_concepts.append(seed)
         for variant_index, variant in enumerate(_case_variants(seed)[:3]):
             if variant and variant not in seen_community_bases:
                 seen_community_bases.add(variant)
@@ -463,6 +480,43 @@ def generate_ranked_candidates(
                     mix_score + 0.08,
                     "community+personal-mix",
                 )
+
+    # Tier 3c: concept-lattice weaving. Only seeds explicitly categorized by
+    # the public pack are paired, which prevents an all-words Cartesian
+    # explosion. Both starting directions are considered and equal next
+    # characters are consumed once. This reaches human-made compound strings
+    # without storing complete passwords or enumerating printable characters.
+    weave_concepts = community_weave_concepts[:256]
+    for left_index, left in enumerate(weave_concepts):
+        left_cost = _rank_cost(left_index, 0.02)
+        for right_index in range(left_index + 1, len(weave_concepts)):
+            right = weave_concepts[right_index]
+            if left.casefold() == right.casefold():
+                continue
+            compact_length = len(left.replace(" ", "")) + len(right.replace(" ", ""))
+            phrase_cost = 0.15 * (left.count(" ") + right.count(" "))
+            pair_score = (
+                4.15
+                + left_cost
+                + _rank_cost(right_index, 0.02)
+                + min(compact_length * 0.02, 0.60)
+                + phrase_cost
+            )
+            woven_values = (
+                _shared_character_interleave(left, right, start_left=True),
+                _shared_character_interleave(left, right, start_left=False),
+                _shared_character_interleave(right, left, start_left=True),
+                _shared_character_interleave(right, left, start_left=False),
+            )
+            for woven_index, woven in enumerate(dict.fromkeys(woven_values)):
+                for case_index, case_variant in enumerate(_case_variants(woven)[:3]):
+                    add(
+                        case_variant,
+                        pair_score
+                        + _rank_cost(woven_index, 0.06)
+                        + case_index * 0.12,
+                        "community-concept-interleave",
+                    )
 
     # Tier 4: an optional downloaded community pack. Community seeds use a
     # deliberately bounded grammar and are ranked after personal information.
