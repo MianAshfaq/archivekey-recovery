@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 
 # Ordered by observed usefulness. These are structural tokens, not a leaked
-# password list. Users can add their own exact values and clues in the UI.
+# password list. Users can add their own possible guesses and clues in the UI.
 COMMON_NUMBERS = ("123", "1234", "786", "1", "12", "007", "000", "111")
 COMMON_SEPARATORS = ("@", "", "_", "-", ".", "#", "!")
 TRAILING_SYMBOLS = ("!", "@", "#", "%", "$", "&", "*", "+", "_")
@@ -96,7 +96,7 @@ def generate_ranked_candidates(
             pool[value] = (score, previous[1], rule)
 
     for index, value in enumerate(_clean_lines(exact)):
-        add(value, -100.0 + index * 0.001, "exact")
+        add(value, -100.0 + index * 0.001, "possible-guess")
 
     bases: list[tuple[str, float, str]] = []
     seen_bases: set[str] = set()

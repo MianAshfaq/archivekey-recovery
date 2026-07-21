@@ -34,13 +34,13 @@ if (-not (Test-Path -LiteralPath $candle) -or -not (Test-Path -LiteralPath $ligh
 }
 
 $wixObject = Join-Path $obj "ArchiveKey.wixobj"
-$msi = Join-Path $dist "ArchiveKey-0.3.1-x64.msi"
+$msi = Join-Path $dist "ArchiveKey-0.3.3-x64.msi"
 
 & $candle -nologo -arch x64 "-dSourceDir=$dist" "-dProjectRoot=$projectRoot" `
     -out $wixObject (Join-Path $installer "ArchiveKey.wxs")
 if ($LASTEXITCODE -ne 0) { throw "WiX compilation failed with exit code $LASTEXITCODE." }
 
-& $light -nologo -out $msi $wixObject
+& $light -nologo -ext WixUIExtension -cultures:en-us -out $msi $wixObject
 if ($LASTEXITCODE -ne 0) { throw "WiX linking failed with exit code $LASTEXITCODE." }
 
 Write-Output $msi

@@ -76,7 +76,7 @@ class RecoveryEngine:
             preview = ", ".join(candidate.value for candidate in ranked_candidates[:5])
             self.log(f"First candidates: {preview}")
         if not ranked_candidates:
-            raise RecoveryError("Add at least one exact password or remembered clue.")
+            raise RecoveryError("Add at least one possible password guess or remembered clue.")
 
         # RAR 5 is verified by ArchiveKey's own PBKDF2 implementation. No John
         # process or per-candidate UnRAR launch is required for this path.
@@ -109,7 +109,7 @@ class RecoveryEngine:
             except Rar5FormatError as exc:
                 self.log(f"Native RAR 5 parsing unavailable ({exc}); using legacy backend.")
 
-        # Exact candidates are cheap to verify for legacy/non-RAR5 formats.
+        # User-supplied guesses are cheap to verify for legacy/non-RAR5 formats.
         for password in config.exact_passwords:
             if self.cancel_event.is_set():
                 return RecoveryResult(None, None, len(candidates), cancelled=True)

@@ -138,7 +138,7 @@ class ArchiveKeyApp(tk.Tk):
         ).pack(anchor="w", padx=26, pady=(0, 12))
 
         self._workflow_step(sidebar, "01", "Choose archive", "RAR, ZIP or 7Z", active=True)
-        self._workflow_step(sidebar, "02", "Add memory clues", "Words, dates, patterns")
+        self._workflow_step(sidebar, "02", "Add what you remember", "Guesses, words, patterns")
         self._workflow_step(sidebar, "03", "Recover locally", "Test and extract safely")
 
         security = tk.Frame(
@@ -307,17 +307,22 @@ class ArchiveKeyApp(tk.Tk):
     def _build_clues_card(self, parent: tk.Widget) -> None:
         card = self._card(parent)
         card.grid(row=1, column=0, sticky="nsew", pady=10)
-        self._section_heading(card, "STEP 02", "Memory clues", "Start with likely answers, then add meaningful fragments.")
+        self._section_heading(
+            card,
+            "STEP 02",
+            "What do you remember?",
+            "Add uncertain password variations or meaningful fragments.",
+        )
         columns = tk.Frame(card, bg=COLORS["surface"])
         columns.pack(fill="both", expand=True, padx=18, pady=(0, 17))
         columns.grid_columnconfigure(0, weight=1, uniform="clues")
         columns.grid_columnconfigure(1, weight=1, uniform="clues")
         columns.grid_rowconfigure(1, weight=1, minsize=96)
 
-        self._field_label(columns, "EXACT PASSWORDS", 0, 0)
-        self._field_label(columns, "WORDS & PATTERNS", 0, 1, padx=(8, 0))
-        self.exact_text = self._text_field(columns, "Example: MyPassword@2020")
-        self.clue_text = self._text_field(columns, "Example: nickname, city, company")
+        self._field_label(columns, "POSSIBLE PASSWORD GUESSES", 0, 0)
+        self._field_label(columns, "CLUE WORDS & PATTERNS", 0, 1, padx=(8, 0))
+        self.exact_text = self._text_field(columns, "An old password variation")
+        self.clue_text = self._text_field(columns, "Names, places, years, symbols")
         self.exact_text.grid(row=1, column=0, sticky="nsew", pady=(6, 0), padx=(0, 8))
         self.clue_text.grid(row=1, column=1, sticky="nsew", pady=(6, 0), padx=(8, 0))
 
@@ -741,7 +746,7 @@ class ArchiveKeyApp(tk.Tk):
                             "Password recovered",
                             f"Password: {result.password}\n"
                             f"Candidates tested: {result.candidates_tested:,}\n"
-                            f"Rule: {result.matched_rule or 'exact/legacy'}\n\n"
+                            f"Rule: {result.matched_rule or 'direct guess/legacy'}\n\n"
                             f"Extracted to:\n{result.output_directory}\n\n"
                             "Open the recovered folder now?",
                         )

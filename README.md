@@ -27,7 +27,7 @@ cost = base_cost + template_cost
      + log2(symbol_rank + 2)
 ```
 
-Lower-cost candidates are tested first. Direct clues have the lowest base cost, derived acronyms have a small additional cost, and less common components receive gradually larger logarithmic costs. Exact remembered passwords always come first.
+Lower-cost candidates are tested first. Direct clues have the lowest base cost, derived acronyms have a small additional cost, and less common components receive gradually larger logarithmic costs. A few user-supplied possible password guesses are tested first.
 
 For example, the synthetic clue `United Kingdom` produces direct case variants plus the contextual aliases `UK` and `GB`. The grammar then constructs and scores:
 
@@ -46,7 +46,7 @@ Synthetic regression fixtures verify that high-probability structured candidates
 
 - Native RAR 5 header and file-encryption record parsing
 - Native RAR 5 PBKDF2-HMAC-SHA256 verification
-- Direct testing of exact remembered passwords
+- Direct testing of uncertain password guesses before generated combinations
 - Probability-scored password grammar without leaked-password lists
 - Country/place aliases and acronym generation
 - `stem + separator + number + trailing symbol` rules using synthetic fixtures
@@ -88,7 +88,7 @@ python -m pip install -r requirements-build.txt
 .\build_msi.ps1
 ```
 
-The output is `dist\ArchiveKey-0.3.1-x64.msi`. The build script uses PyInstaller
+The output is `dist\ArchiveKey-0.3.3-x64.msi`. The build script uses PyInstaller
 and downloads the official portable WiX 3.14.1 tools into an ignored local build
 directory through GitHub CLI; those third-party binaries are never committed to
 this repository. Public alpha installers are currently unsigned, so Windows can

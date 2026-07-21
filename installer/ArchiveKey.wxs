@@ -4,7 +4,7 @@
       Id="*"
       Name="ArchiveKey"
       Language="1033"
-      Version="0.3.1"
+      Version="0.3.3"
       Manufacturer="ArchiveKey contributors"
       UpgradeCode="{56DEAB33-AEDB-45EA-8556-FB7FF805DF0D}">
 
@@ -20,6 +20,11 @@
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="ArchiveKeyIcon" SourceFile="$(var.ProjectRoot)\assets\archivekey.ico" />
     <Property Id="ARPPRODUCTICON" Value="ArchiveKeyIcon" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.ProjectRoot)\installer\License.rtf" />
+
+    <UIRef Id="WixUI_InstallDir" />
+    <UIRef Id="WixUI_ErrorProgressText" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="LocalAppDataFolder">
