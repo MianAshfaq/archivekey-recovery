@@ -12,6 +12,12 @@ $tools = Join-Path $projectRoot ".build-tools\wix314"
 $wixArchive = Join-Path $tools "wix314-binaries.zip"
 $candle = Join-Path $tools "candle.exe"
 $light = Join-Path $tools "light.exe"
+$versionSource = Get-Content -LiteralPath (Join-Path $projectRoot "archivekey\__init__.py") -Raw
+$versionMatch = [regex]::Match($versionSource, '__version__\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"')
+if (-not $versionMatch.Success) {
+    throw "Could not read ArchiveKey version from archivekey\__init__.py."
+}
+$packageVersion = $versionMatch.Groups[1].Value
 
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 New-Item -ItemType Directory -Path $obj -Force | Out-Null
@@ -34,7 +40,7 @@ if (-not (Test-Path -LiteralPath $candle) -or -not (Test-Path -LiteralPath $ligh
 }
 
 $wixObject = Join-Path $obj "ArchiveKey.wixobj"
-$msi = Join-Path $dist "ArchiveKey-0.5.0-x64.msi"
+$msi = Join-Path $dist "ArchiveKey-$packageVersion-x64.msi"
 
 & $candle -nologo -arch x64 "-dSourceDir=$dist" "-dProjectRoot=$projectRoot" `
     -out $wixObject (Join-Path $installer "ArchiveKey.wxs")
