@@ -4,7 +4,7 @@
       Id="*"
       Name="ArchiveKey"
       Language="1033"
-      Version="0.2.0"
+      Version="0.3.1"
       Manufacturer="ArchiveKey contributors"
       UpgradeCode="{56DEAB33-AEDB-45EA-8556-FB7FF805DF0D}">
 
@@ -18,6 +18,8 @@
 
     <MajorUpgrade DowngradeErrorMessage="A newer version of ArchiveKey is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ArchiveKeyIcon" SourceFile="$(var.ProjectRoot)\assets\archivekey.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ArchiveKeyIcon" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="LocalAppDataFolder">
@@ -41,6 +43,7 @@
               Name="ArchiveKey"
               Description="Recover passwords for authorized archives"
               WorkingDirectory="INSTALLFOLDER"
+              Icon="ArchiveKeyIcon"
               Advertise="no" />
           <Shortcut
               Id="StartMenuShortcut"
@@ -48,6 +51,7 @@
               Name="ArchiveKey"
               Description="Recover passwords for authorized archives"
               WorkingDirectory="INSTALLFOLDER"
+              Icon="ArchiveKeyIcon"
               Advertise="no" />
         </File>
         <RegistryValue

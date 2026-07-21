@@ -1,22 +1,63 @@
 from __future__ import annotations
 
+import ctypes
+import os
 import queue
+import sys
 import threading
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from archivekey.engine import RecoveryConfig, RecoveryEngine, RecoveryError
+from archivekey.engine import RecoveryConfig, RecoveryEngine
 from archivekey.tools import Toolchain
+
+
+# ArchiveKey's interface deliberately uses only the Python standard library so
+# the packaged application remains small, auditable, and fully offline.
+COLORS = {
+    "window": "#08111f",
+    "sidebar": "#0a1628",
+    "surface": "#101d31",
+    "surface_alt": "#14243b",
+    "field": "#0b1729",
+    "border": "#233754",
+    "border_focus": "#3182f6",
+    "accent": "#1677ff",
+    "accent_hover": "#2c86ff",
+    "cyan": "#22c7f2",
+    "text": "#f4f7fb",
+    "muted": "#91a3bc",
+    "subtle": "#657892",
+    "success": "#29c97c",
+    "warning": "#f2b84b",
+    "danger": "#ff667d",
+}
+
+
+def resource_path(relative: str) -> Path:
+    """Resolve an asset both from source and from a PyInstaller bundle."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / relative
 
 
 class ArchiveKeyApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("ArchiveKey Recovery")
-        self.geometry("850x720")
-        self.minsize(760, 620)
+        self.title("ArchiveKey — Authorized Archive Recovery")
+        self.geometry("1180x790")
+        self.minsize(1040, 720)
+        self.configure(bg=COLORS["window"])
+        self.option_add("*Font", ("Segoe UI", 10))
+
+        icon_path = resource_path("assets/archivekey.ico")
+        if icon_path.exists():
+            try:
+                self.iconbitmap(default=str(icon_path))
+            except tk.TclError:
+                pass
+
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.engine: RecoveryEngine | None = None
         self.worker: threading.Thread | None = None
@@ -27,93 +68,556 @@ class ArchiveKeyApp(tk.Tk):
         self.years_var = tk.StringVar(value=f"1947, 2000-{datetime.now().year}")
         self.limit_var = tk.StringVar(value="250000")
         self.authorized_var = tk.BooleanVar(value=False)
-        self.status_var = tk.StringVar(value="Ready")
+        self.status_var = tk.StringVar(value="Ready to begin")
+        self.status_detail_var = tk.StringVar(value="Select an archive and add what you remember.")
+        self._logo_image: tk.PhotoImage | None = None
+
+        self._configure_styles()
         self._build()
         self.after(150, self._drain_events)
 
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure(
+            "ArchiveKey.Horizontal.TProgressbar",
+            troughcolor=COLORS["field"],
+            background=COLORS["accent"],
+            lightcolor=COLORS["accent"],
+            darkcolor=COLORS["accent"],
+            bordercolor=COLORS["field"],
+            thickness=8,
+        )
+
     def _build(self) -> None:
-        root = ttk.Frame(self, padding=16)
-        root.pack(fill="both", expand=True)
-        ttk.Label(root, text="ArchiveKey Recovery", font=("Segoe UI", 20, "bold")).pack(anchor="w")
-        ttk.Label(
-            root,
-            text="Private, local password recovery for archives you own or are authorized to access.",
-        ).pack(anchor="w", pady=(0, 14))
+        shell = tk.Frame(self, bg=COLORS["window"])
+        shell.pack(fill="both", expand=True)
+        shell.grid_rowconfigure(0, weight=1)
+        shell.grid_columnconfigure(1, weight=1)
 
-        file_frame = ttk.LabelFrame(root, text="Archive and output", padding=10)
-        file_frame.pack(fill="x")
-        self._path_row(file_frame, "Archive", self.archive_var, self._browse_archive, 0)
-        self._path_row(file_frame, "Output folder", self.output_var, self._browse_output, 1)
-        self._path_row(file_frame, "Legacy tools (optional)", self.john_var, self._browse_john, 2)
+        self._build_sidebar(shell)
+        self._build_workspace(shell)
 
-        clues = ttk.LabelFrame(root, text="What do you remember?", padding=10)
-        clues.pack(fill="both", expand=False, pady=10)
-        ttk.Label(clues, text="Exact passwords to try (one per line)").grid(row=0, column=0, sticky="w")
-        ttk.Label(clues, text="Words, places, countries, acronyms (one per line)").grid(row=0, column=1, sticky="w", padx=(10, 0))
-        self.exact_text = tk.Text(clues, height=7, wrap="none")
-        self.clue_text = tk.Text(clues, height=7, wrap="none")
-        self.exact_text.grid(row=1, column=0, sticky="nsew")
-        self.clue_text.grid(row=1, column=1, sticky="nsew", padx=(10, 0))
-        clues.columnconfigure(0, weight=1)
-        clues.columnconfigure(1, weight=1)
+    def _build_sidebar(self, parent: tk.Widget) -> None:
+        sidebar = tk.Frame(parent, bg=COLORS["sidebar"], width=238)
+        sidebar.grid(row=0, column=0, sticky="nsew")
+        sidebar.grid_propagate(False)
 
-        options = ttk.Frame(root)
-        options.pack(fill="x")
-        ttk.Label(options, text="Likely years/ranges").grid(row=0, column=0, sticky="w")
-        ttk.Entry(options, textvariable=self.years_var, width=34).grid(row=1, column=0, sticky="w")
-        ttk.Label(options, text="Candidate limit").grid(row=0, column=1, sticky="w", padx=(14, 0))
-        ttk.Entry(options, textvariable=self.limit_var, width=14).grid(row=1, column=1, sticky="w", padx=(14, 0))
-        ttk.Button(options, text="Check tools", command=self._check_tools).grid(row=1, column=2, padx=14)
+        brand = tk.Frame(sidebar, bg=COLORS["sidebar"])
+        brand.pack(fill="x", padx=24, pady=(24, 34))
+        logo_path = resource_path("assets/archivekey-logo-72.png")
+        if logo_path.exists():
+            self._logo_image = tk.PhotoImage(file=str(logo_path))
+            tk.Label(brand, image=self._logo_image, bg=COLORS["sidebar"]).pack(side="left")
+        brand_text = tk.Frame(brand, bg=COLORS["sidebar"])
+        brand_text.pack(side="left", padx=(12, 0))
+        tk.Label(
+            brand_text,
+            text="ArchiveKey",
+            bg=COLORS["sidebar"],
+            fg=COLORS["text"],
+            font=("Segoe UI Semibold", 16),
+        ).pack(anchor="w")
+        tk.Label(
+            brand_text,
+            text="RECOVERY STUDIO",
+            bg=COLORS["sidebar"],
+            fg=COLORS["cyan"],
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w", pady=(2, 0))
 
-        ttk.Checkbutton(
-            root,
-            text="I own this archive or have explicit authorization to recover its password.",
+        tk.Label(
+            sidebar,
+            text="WORKFLOW",
+            bg=COLORS["sidebar"],
+            fg=COLORS["subtle"],
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w", padx=26, pady=(0, 12))
+
+        self._workflow_step(sidebar, "01", "Choose archive", "RAR, ZIP or 7Z", active=True)
+        self._workflow_step(sidebar, "02", "Add memory clues", "Words, dates, patterns")
+        self._workflow_step(sidebar, "03", "Recover locally", "Test and extract safely")
+
+        security = tk.Frame(
+            sidebar,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
+        security.pack(side="bottom", fill="x", padx=18, pady=18)
+        tk.Label(
+            security,
+            text="LOCAL-ONLY SECURITY",
+            bg=COLORS["surface"],
+            fg=COLORS["success"],
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w", padx=14, pady=(13, 4))
+        tk.Label(
+            security,
+            text="Your archive and clues stay\non this computer.",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            justify="left",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=14, pady=(0, 13))
+
+    def _workflow_step(
+        self,
+        parent: tk.Widget,
+        number: str,
+        title: str,
+        subtitle: str,
+        active: bool = False,
+    ) -> None:
+        row = tk.Frame(parent, bg=COLORS["surface"] if active else COLORS["sidebar"])
+        row.pack(fill="x", padx=12, pady=3)
+        if active:
+            tk.Frame(row, bg=COLORS["accent"], width=3).pack(side="left", fill="y")
+        badge = tk.Label(
+            row,
+            text=number,
+            bg=COLORS["accent"] if active else COLORS["surface_alt"],
+            fg=COLORS["text"] if active else COLORS["muted"],
+            width=3,
+            font=("Segoe UI Semibold", 9),
+            padx=3,
+            pady=7,
+        )
+        badge.pack(side="left", padx=(12 if active else 15, 10), pady=11)
+        copy = tk.Frame(row, bg=row["bg"])
+        copy.pack(side="left", fill="x", expand=True)
+        tk.Label(
+            copy,
+            text=title,
+            bg=row["bg"],
+            fg=COLORS["text"] if active else COLORS["muted"],
+            font=("Segoe UI Semibold", 10),
+        ).pack(anchor="w")
+        tk.Label(
+            copy,
+            text=subtitle,
+            bg=row["bg"],
+            fg=COLORS["subtle"],
+            font=("Segoe UI", 8),
+        ).pack(anchor="w", pady=(2, 0))
+
+    def _build_workspace(self, parent: tk.Widget) -> None:
+        workspace = tk.Frame(parent, bg=COLORS["window"])
+        workspace.grid(row=0, column=1, sticky="nsew")
+        workspace.grid_rowconfigure(1, weight=1)
+        workspace.grid_columnconfigure(0, weight=1)
+
+        header = tk.Frame(workspace, bg=COLORS["window"])
+        header.grid(row=0, column=0, sticky="ew", padx=30, pady=(22, 18))
+        title_block = tk.Frame(header, bg=COLORS["window"])
+        title_block.pack(side="left")
+        tk.Label(
+            title_block,
+            text="Password recovery workspace",
+            bg=COLORS["window"],
+            fg=COLORS["text"],
+            font=("Segoe UI Semibold", 22),
+        ).pack(anchor="w")
+        tk.Label(
+            title_block,
+            text="Build a focused candidate plan from the details only you know.",
+            bg=COLORS["window"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 10),
+        ).pack(anchor="w", pady=(4, 0))
+        badge = tk.Label(
+            header,
+            text="  PRIVATE  •  OFFLINE  ",
+            bg=COLORS["surface"],
+            fg=COLORS["success"],
+            font=("Segoe UI Semibold", 8),
+            padx=8,
+            pady=7,
+        )
+        badge.pack(side="right", anchor="n", pady=4)
+
+        body = tk.Frame(workspace, bg=COLORS["window"])
+        body.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 26))
+        body.grid_rowconfigure(0, weight=1)
+        body.grid_columnconfigure(0, weight=5, uniform="body")
+        body.grid_columnconfigure(1, weight=3, uniform="body")
+
+        left = tk.Frame(body, bg=COLORS["window"])
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left.grid_columnconfigure(0, weight=1)
+        left.grid_rowconfigure(1, weight=1, minsize=250)
+
+        right = tk.Frame(body, bg=COLORS["window"])
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(1, weight=1)
+
+        self._build_archive_card(left)
+        self._build_clues_card(left)
+        self._build_options_card(left)
+        self._build_status_card(right)
+        self._build_log_card(right)
+
+    def _card(self, parent: tk.Widget) -> tk.Frame:
+        return tk.Frame(
+            parent,
+            bg=COLORS["surface"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
+
+    def _section_heading(self, parent: tk.Widget, eyebrow: str, title: str, help_text: str) -> None:
+        heading = tk.Frame(parent, bg=COLORS["surface"])
+        heading.pack(fill="x", padx=18, pady=(10, 7))
+        tk.Label(
+            heading,
+            text=eyebrow,
+            bg=COLORS["surface"],
+            fg=COLORS["cyan"],
+            font=("Segoe UI Semibold", 8),
+        ).pack(anchor="w")
+        tk.Label(
+            heading,
+            text=title,
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            font=("Segoe UI Semibold", 13),
+        ).pack(anchor="w", pady=(1, 0))
+        tk.Label(
+            heading,
+            text=help_text,
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(2, 0))
+
+    def _build_archive_card(self, parent: tk.Widget) -> None:
+        card = self._card(parent)
+        card.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self._section_heading(card, "STEP 01", "Archive details", "Choose the protected file and a safe extraction location.")
+        fields = tk.Frame(card, bg=COLORS["surface"])
+        fields.pack(fill="x", padx=18, pady=(0, 10))
+        fields.grid_columnconfigure(1, weight=1)
+        self._path_row(fields, "ARCHIVE FILE", self.archive_var, self._browse_archive, 0, "Choose file")
+        self._path_row(fields, "OUTPUT FOLDER", self.output_var, self._browse_output, 1, "Browse")
+
+    def _build_clues_card(self, parent: tk.Widget) -> None:
+        card = self._card(parent)
+        card.grid(row=1, column=0, sticky="nsew", pady=10)
+        self._section_heading(card, "STEP 02", "Memory clues", "Start with likely answers, then add meaningful fragments.")
+        columns = tk.Frame(card, bg=COLORS["surface"])
+        columns.pack(fill="both", expand=True, padx=18, pady=(0, 17))
+        columns.grid_columnconfigure(0, weight=1, uniform="clues")
+        columns.grid_columnconfigure(1, weight=1, uniform="clues")
+        columns.grid_rowconfigure(1, weight=1, minsize=96)
+
+        self._field_label(columns, "EXACT PASSWORDS", 0, 0)
+        self._field_label(columns, "WORDS & PATTERNS", 0, 1, padx=(8, 0))
+        self.exact_text = self._text_field(columns, "Example: MyPassword@2020")
+        self.clue_text = self._text_field(columns, "Example: nickname, city, company")
+        self.exact_text.grid(row=1, column=0, sticky="nsew", pady=(6, 0), padx=(0, 8))
+        self.clue_text.grid(row=1, column=1, sticky="nsew", pady=(6, 0), padx=(8, 0))
+
+    def _build_options_card(self, parent: tk.Widget) -> None:
+        card = self._card(parent)
+        card.grid(row=2, column=0, sticky="ew", pady=(10, 0))
+        content = tk.Frame(card, bg=COLORS["surface"])
+        content.pack(fill="x", padx=18, pady=15)
+        content.grid_columnconfigure(0, weight=3)
+        content.grid_columnconfigure(1, weight=2)
+
+        self._field_label(content, "LIKELY YEARS / RANGES", 0, 0)
+        self._field_label(content, "CANDIDATE LIMIT", 0, 1, padx=(14, 0))
+        self._entry(content, self.years_var).grid(row=1, column=0, sticky="ew", pady=(6, 0))
+        self._entry(content, self.limit_var).grid(row=1, column=1, sticky="ew", padx=(14, 0), pady=(6, 0))
+        tools = tk.Frame(content, bg=COLORS["surface"])
+        tools.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(10, 0))
+        self._button(tools, "Check installed tools", self._check_tools).pack(side="left")
+        tk.Label(
+            tools,
+            text="Detects WinRAR / UnRAR and 7-Zip for extraction",
+            bg=COLORS["surface"],
+            fg=COLORS["subtle"],
+            font=("Segoe UI", 8),
+        ).pack(side="left", padx=(10, 0))
+
+    def _build_status_card(self, parent: tk.Widget) -> None:
+        card = self._card(parent)
+        card.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+
+        top = tk.Frame(card, bg=COLORS["surface"])
+        top.pack(fill="x", padx=18, pady=(18, 10))
+        self.status_dot = tk.Label(
+            top,
+            text="●",
+            bg=COLORS["surface"],
+            fg=COLORS["success"],
+            font=("Segoe UI", 16),
+        )
+        self.status_dot.pack(side="left", anchor="n", padx=(0, 10))
+        copy = tk.Frame(top, bg=COLORS["surface"])
+        copy.pack(side="left", fill="x", expand=True)
+        tk.Label(
+            copy,
+            textvariable=self.status_var,
+            bg=COLORS["surface"],
+            fg=COLORS["text"],
+            font=("Segoe UI Semibold", 13),
+        ).pack(anchor="w")
+        tk.Label(
+            copy,
+            textvariable=self.status_detail_var,
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            wraplength=270,
+            justify="left",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", pady=(3, 0))
+
+        self.progress = ttk.Progressbar(
+            card,
+            mode="determinate",
+            value=0,
+            style="ArchiveKey.Horizontal.TProgressbar",
+        )
+        self.progress.pack(fill="x", padx=18, pady=(2, 14))
+
+        auth = tk.Checkbutton(
+            card,
+            text="I own this archive or have explicit permission.",
             variable=self.authorized_var,
-        ).pack(anchor="w", pady=10)
+            bg=COLORS["surface"],
+            activebackground=COLORS["surface"],
+            fg=COLORS["muted"],
+            activeforeground=COLORS["text"],
+            selectcolor=COLORS["field"],
+            font=("Segoe UI", 9),
+            wraplength=250,
+            justify="left",
+            cursor="hand2",
+            bd=0,
+            highlightthickness=0,
+        )
+        auth.pack(anchor="w", padx=14, pady=(0, 13))
 
-        controls = ttk.Frame(root)
-        controls.pack(fill="x")
-        self.start_button = ttk.Button(controls, text="Start recovery", command=self._start)
-        self.cancel_button = ttk.Button(controls, text="Cancel", command=self._cancel, state="disabled")
-        self.start_button.pack(side="left")
-        self.cancel_button.pack(side="left", padx=8)
-        ttk.Label(controls, textvariable=self.status_var).pack(side="right")
+        actions = tk.Frame(card, bg=COLORS["surface"])
+        actions.pack(fill="x", padx=18, pady=(0, 18))
+        actions.grid_columnconfigure(0, weight=1)
+        self.start_button = self._button(actions, "Start recovery  →", self._start, primary=True)
+        self.cancel_button = self._button(actions, "Cancel", self._cancel, danger=True)
+        self.start_button.grid(row=0, column=0, sticky="ew", padx=(0, 7))
+        self.cancel_button.grid(row=0, column=1, sticky="e", padx=(7, 0))
+        self.cancel_button.configure(state="disabled")
 
-        log_frame = ttk.LabelFrame(root, text="Recovery log", padding=8)
-        log_frame.pack(fill="both", expand=True, pady=(10, 0))
-        self.log_text = tk.Text(log_frame, height=10, state="disabled", wrap="word")
+    def _build_log_card(self, parent: tk.Widget) -> None:
+        card = self._card(parent)
+        card.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+        header = tk.Frame(card, bg=COLORS["surface"])
+        header.pack(fill="x", padx=17, pady=(14, 10))
+        tk.Label(
+            header,
+            text="RECOVERY ACTIVITY",
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI Semibold", 8),
+        ).pack(side="left")
+        tk.Label(
+            header,
+            text="LIVE",
+            bg=COLORS["surface_alt"],
+            fg=COLORS["cyan"],
+            padx=7,
+            pady=3,
+            font=("Segoe UI Semibold", 7),
+        ).pack(side="right")
+
+        log_border = tk.Frame(card, bg=COLORS["border"], padx=1, pady=1)
+        log_border.pack(fill="both", expand=True, padx=17, pady=(0, 17))
+        self.log_text = tk.Text(
+            log_border,
+            state="disabled",
+            wrap="word",
+            bg=COLORS["field"],
+            fg=COLORS["muted"],
+            insertbackground=COLORS["text"],
+            selectbackground=COLORS["accent"],
+            bd=0,
+            highlightthickness=0,
+            padx=12,
+            pady=10,
+            font=("Cascadia Mono", 8),
+        )
         self.log_text.pack(fill="both", expand=True)
+        self.log_text.tag_configure("time", foreground=COLORS["subtle"])
+        self.log_text.tag_configure("success", foreground=COLORS["success"])
+        self.log_text.tag_configure("error", foreground=COLORS["danger"])
+        self.log_text.configure(state="normal")
+        self.log_text.insert("end", "Waiting for a recovery plan.\n", "time")
+        self.log_text.configure(state="disabled")
 
-    def _path_row(self, parent, label, variable, command, row) -> None:
-        ttk.Label(parent, text=label, width=16).grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(parent, textvariable=variable).grid(row=row, column=1, sticky="ew", padx=6)
-        ttk.Button(parent, text="Browse", command=command).grid(row=row, column=2)
-        parent.columnconfigure(1, weight=1)
+    def _field_label(
+        self,
+        parent: tk.Widget,
+        text: str,
+        row: int,
+        column: int,
+        padx: tuple[int, int] = (0, 0),
+    ) -> None:
+        tk.Label(
+            parent,
+            text=text,
+            bg=COLORS["surface"],
+            fg=COLORS["muted"],
+            font=("Segoe UI Semibold", 8),
+        ).grid(row=row, column=column, sticky="w", padx=padx)
+
+    def _entry(self, parent: tk.Widget, variable: tk.StringVar) -> tk.Entry:
+        return tk.Entry(
+            parent,
+            textvariable=variable,
+            bg=COLORS["field"],
+            fg=COLORS["text"],
+            insertbackground=COLORS["text"],
+            disabledbackground=COLORS["field"],
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            highlightcolor=COLORS["border_focus"],
+            font=("Segoe UI", 9),
+        )
+
+    def _text_field(self, parent: tk.Widget, placeholder: str) -> tk.Text:
+        field = tk.Text(
+            parent,
+            height=5,
+            wrap="none",
+            bg=COLORS["field"],
+            fg=COLORS["text"],
+            insertbackground=COLORS["text"],
+            selectbackground=COLORS["accent"],
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=COLORS["border"],
+            highlightcolor=COLORS["border_focus"],
+            padx=10,
+            pady=9,
+            font=("Segoe UI", 9),
+        )
+        field._archivekey_placeholder_active = True  # type: ignore[attr-defined]
+        field.insert("1.0", placeholder)
+        field.configure(fg=COLORS["subtle"])
+
+        def clear_placeholder(_event=None) -> None:
+            if field._archivekey_placeholder_active:  # type: ignore[attr-defined]
+                field.delete("1.0", "end")
+                field.configure(fg=COLORS["text"])
+                field._archivekey_placeholder_active = False  # type: ignore[attr-defined]
+
+        def restore_placeholder(_event=None) -> None:
+            if not field.get("1.0", "end").strip():
+                field.delete("1.0", "end")
+                field.insert("1.0", placeholder)
+                field.configure(fg=COLORS["subtle"])
+                field._archivekey_placeholder_active = True  # type: ignore[attr-defined]
+
+        field.bind("<FocusIn>", clear_placeholder)
+        field.bind("<FocusOut>", restore_placeholder)
+        field.configure(takefocus=True)
+        return field
+
+    def _button(
+        self,
+        parent: tk.Widget,
+        text: str,
+        command,
+        primary: bool = False,
+        danger: bool = False,
+    ) -> tk.Button:
+        background = COLORS["accent"] if primary else COLORS["surface_alt"]
+        foreground = COLORS["text"] if not danger else "#ff9bac"
+        active = COLORS["accent_hover"] if primary else COLORS["border"]
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=background,
+            fg=foreground,
+            activebackground=active,
+            activeforeground=COLORS["text"],
+            disabledforeground=COLORS["subtle"],
+            relief="flat",
+            bd=0,
+            padx=14,
+            pady=8,
+            cursor="hand2",
+            font=("Segoe UI Semibold", 9),
+            highlightthickness=0,
+        )
+
+    def _path_row(
+        self,
+        parent: tk.Widget,
+        label: str,
+        variable: tk.StringVar,
+        command,
+        row: int,
+        button_text: str,
+        optional: bool = False,
+    ) -> None:
+        label_text = f"{label}  ·  OPTIONAL" if optional else label
+        tk.Label(
+            parent,
+            text=label_text,
+            bg=COLORS["surface"],
+            fg=COLORS["subtle"] if optional else COLORS["muted"],
+            font=("Segoe UI Semibold", 8),
+        ).grid(row=row, column=0, sticky="w", pady=3)
+        entry = self._entry(parent, variable)
+        entry.grid(row=row, column=1, sticky="ew", padx=(12, 8), pady=3, ipady=5)
+        self._button(parent, button_text, command).grid(row=row, column=2, sticky="e", pady=3)
 
     def _browse_archive(self) -> None:
-        selected = filedialog.askopenfilename(filetypes=[("Archives", "*.rar *.zip *.7z"), ("All files", "*.*")])
+        selected = filedialog.askopenfilename(
+            title="Choose an archive",
+            filetypes=[("Supported archives", "*.rar *.zip *.7z"), ("All files", "*.*")],
+        )
         if selected:
             archive = Path(selected)
             self.archive_var.set(selected)
             self.output_var.set(str(archive.with_name(archive.stem + "-recovered")))
+            self.status_var.set("Archive selected")
+            self.status_detail_var.set(archive.name)
 
     def _browse_output(self) -> None:
-        selected = filedialog.askdirectory()
+        selected = filedialog.askdirectory(title="Choose a parent output folder")
         if selected:
             archive_stem = Path(self.archive_var.get()).stem or "recovered"
             self.output_var.set(str(Path(selected) / f"{archive_stem}-recovered"))
 
     def _browse_john(self) -> None:
-        selected = filedialog.askdirectory()
+        selected = filedialog.askdirectory(title="Locate optional legacy tools")
         if selected:
             self.john_var.set(selected)
 
     def _check_tools(self) -> None:
-        messagebox.showinfo("Detected tools", Toolchain.discover(self.john_var.get()).describe())
+        description = Toolchain.discover(self.john_var.get()).describe()
+        self._log(f"Tool check: {description}")
+        messagebox.showinfo(
+            "Installed extraction tools",
+            "ArchiveKey uses these local programs only to verify and extract a recovered archive.\n\n"
+            f"{description}",
+        )
 
     @staticmethod
     def _lines(widget: tk.Text) -> tuple[str, ...]:
-        return tuple(line for line in widget.get("1.0", "end").splitlines() if line.strip())
+        if getattr(widget, "_archivekey_placeholder_active", False):
+            return ()
+        return tuple(line.strip() for line in widget.get("1.0", "end").splitlines() if line.strip())
 
     def _parse_years(self) -> tuple[int, ...]:
         years: set[int] = set()
@@ -132,12 +636,19 @@ class ArchiveKeyApp(tk.Tk):
 
     def _start(self) -> None:
         if not self.authorized_var.get():
-            messagebox.showerror("Authorization required", "Confirm that you own or are authorized to access the archive.")
+            messagebox.showerror(
+                "Authorization required",
+                "Confirm that you own this archive or have explicit permission to recover it.",
+            )
             return
         try:
             archive = Path(self.archive_var.get())
             output = Path(self.output_var.get())
             limit = int(self.limit_var.get())
+            if not archive.is_file():
+                raise ValueError("Choose an existing RAR, ZIP, or 7Z archive.")
+            if not str(output):
+                raise ValueError("Choose an output folder.")
             if not 1 <= limit <= 5_000_000:
                 raise ValueError("Candidate limit must be between 1 and 5,000,000.")
             config = RecoveryConfig(
@@ -150,7 +661,7 @@ class ArchiveKeyApp(tk.Tk):
                 john_directory=self.john_var.get(),
             )
         except (ValueError, OSError) as exc:
-            messagebox.showerror("Invalid settings", str(exc))
+            messagebox.showerror("Review recovery settings", str(exc))
             return
 
         self._set_running(True)
@@ -170,16 +681,29 @@ class ArchiveKeyApp(tk.Tk):
     def _cancel(self) -> None:
         if self.engine:
             self.engine.cancel()
-            self.status_var.set("Cancelling...")
+            self.status_var.set("Cancelling recovery")
+            self.status_detail_var.set("Finishing the current verification safely…")
+            self.status_dot.configure(fg=COLORS["warning"])
 
     def _set_running(self, running: bool) -> None:
         self.start_button.configure(state="disabled" if running else "normal")
         self.cancel_button.configure(state="normal" if running else "disabled")
-        self.status_var.set("Recovering..." if running else "Ready")
+        if running:
+            self.status_var.set("Recovery in progress")
+            self.status_detail_var.set("Testing the focused candidate plan locally…")
+            self.status_dot.configure(fg=COLORS["cyan"])
+            self.progress.configure(mode="indeterminate")
+            self.progress.start(12)
+        else:
+            self.progress.stop()
+            self.progress.configure(mode="determinate", value=0)
 
     def _log(self, message: str) -> None:
+        lowered = message.lower()
+        tag = "error" if "error" in lowered else "success" if "recover" in lowered and "starting" not in lowered else None
         self.log_text.configure(state="normal")
-        self.log_text.insert("end", message.rstrip() + "\n")
+        self.log_text.insert("end", datetime.now().strftime("%H:%M:%S  "), "time")
+        self.log_text.insert("end", message.rstrip() + "\n", tag or "")
         self.log_text.see("end")
         self.log_text.configure(state="disabled")
 
@@ -191,32 +715,63 @@ class ArchiveKeyApp(tk.Tk):
                     self._log(str(payload))
                 elif kind == "error":
                     self._set_running(False)
+                    self.status_var.set("Recovery stopped")
+                    self.status_detail_var.set("Review the error in the activity log.")
+                    self.status_dot.configure(fg=COLORS["danger"])
                     self._log(f"ERROR: {payload}")
                     messagebox.showerror("Recovery failed", str(payload))
                 elif kind == "done":
                     self._set_running(False)
                     result = payload
                     if result.cancelled:
+                        self.status_var.set("Recovery cancelled")
+                        self.status_detail_var.set("You can adjust the plan and start again.")
+                        self.status_dot.configure(fg=COLORS["warning"])
                         self._log("Recovery cancelled.")
                     elif result.password:
+                        self.status_var.set("Password recovered")
+                        self.status_detail_var.set(f"Verified after {result.candidates_tested:,} candidates.")
+                        self.status_dot.configure(fg=COLORS["success"])
+                        self.progress.configure(value=100)
                         self._log(f"RECOVERED PASSWORD: {result.password}")
                         self._log(f"Candidates tested: {result.candidates_tested:,}")
                         if result.matched_rule:
                             self._log(f"Winning rule: {result.matched_rule}")
-                        messagebox.showinfo(
+                        open_folder = messagebox.askyesno(
                             "Password recovered",
                             f"Password: {result.password}\n"
                             f"Candidates tested: {result.candidates_tested:,}\n"
                             f"Rule: {result.matched_rule or 'exact/legacy'}\n\n"
-                            f"Extracted to:\n{result.output_directory}",
+                            f"Extracted to:\n{result.output_directory}\n\n"
+                            "Open the recovered folder now?",
                         )
+                        if open_folder and result.output_directory:
+                            try:
+                                os.startfile(str(result.output_directory))
+                            except OSError:
+                                pass
                     else:
+                        self.status_var.set("Plan completed")
+                        self.status_detail_var.set("No candidate matched. Refine the clues and try again.")
+                        self.status_dot.configure(fg=COLORS["warning"])
                         self._log("No match in this candidate set. Add stronger clues or expand the plan.")
-                        messagebox.showwarning("Not recovered", "No supplied or generated candidate matched.")
+                        messagebox.showwarning(
+                            "No match in this plan",
+                            "No supplied or generated candidate matched. Add more personal clues or expand the plan.",
+                        )
         except queue.Empty:
             pass
         self.after(150, self._drain_events)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            pass
     ArchiveKeyApp().mainloop()
+
+
+if __name__ == "__main__":
+    main()

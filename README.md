@@ -1,8 +1,16 @@
-# ArchiveKey Recovery
+<p align="center">
+  <img src="assets/archivekey-logo-256.png" width="132" alt="ArchiveKey shield and keyhole logo">
+</p>
+
+<h1 align="center">ArchiveKey Recovery</h1>
+
+<p align="center"><strong>Private, focused archive recovery for Windows.</strong></p>
 
 ArchiveKey is a local Windows desktop application for recovering passwords from archives that you own or are explicitly authorized to access. It creates probability-ranked candidates from remembered words, names, places, dates, acronyms, separators, numeric tokens, and trailing symbols. Recovered archives are verified and extracted to a new folder; the original archive is never changed.
 
 For RAR 5, ArchiveKey includes its own independent parser and PBKDF2-HMAC-SHA256 password verifier. It does not require John the Ripper for RAR 5 candidate testing. UnRAR or 7-Zip is used only to perform final archive verification and safe extraction after ArchiveKey finds a matching password.
+
+![ArchiveKey professional recovery workspace](docs/archivekey-ui.png)
 
 ## Important limitation
 
@@ -48,6 +56,7 @@ Synthetic regression fixtures verify that high-probability structured candidates
 - Password verification before extraction
 - Safe extraction to a new, uniquely named folder
 - Background recovery, cancellation, and logs
+- Branded dark recovery workspace with live status and activity panels
 - Explicit ownership/authorization confirmation
 - Optional legacy John backend for older RAR/ZIP formats
 - 7z verification/extraction when 7-Zip is installed (native 7z recovery is planned)
@@ -79,7 +88,7 @@ python -m pip install -r requirements-build.txt
 .\build_msi.ps1
 ```
 
-The output is `dist\ArchiveKey-0.2.0-x64.msi`. The build script uses PyInstaller
+The output is `dist\ArchiveKey-0.3.1-x64.msi`. The build script uses PyInstaller
 and downloads the official portable WiX 3.14.1 tools into an ignored local build
 directory through GitHub CLI; those third-party binaries are never committed to
 this repository. Public alpha installers are currently unsigned, so Windows can
