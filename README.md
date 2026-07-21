@@ -42,6 +42,12 @@ UK@123%
 
 Synthetic regression fixtures verify that high-probability structured candidates are reached early. An unrestricted nine-character printable-ASCII search would contain hundreds of quadrillions of candidates.
 
+The concept-lattice weave uses only seeds explicitly categorized for pairing.
+For every unordered concept pair it evaluates both starting directions, alternates
+characters, consumes a shared next character once, and ranks the bounded result
+ahead of low-value generic mutations. This adds compound-word coverage without
+performing an unrestricted Cartesian product over every downloaded seed.
+
 ## Current MVP features
 
 - Native RAR 5 header and file-encryption record parsing
@@ -50,6 +56,7 @@ Synthetic regression fixtures verify that high-probability structured candidates
 - Adaptive mutation of guesses across case, numbers, separators, endings, and bounded leetspeak
 - Two-way mixing of guess-derived stems with remembered clue words and patterns
 - Shared-character interleaving of two remembered concepts, including both starting directions
+- No-hint concept-lattice weaving across categorized public geographic seeds
 - In-app generated-plan preview with strategy counts and example candidates
 - Opt-in GitHub community seed pack for recovery without personal hints
 - Explicit offline/online-pack status with local caching and no archive upload
@@ -94,7 +101,7 @@ python -m pip install -r requirements-build.txt
 .\build_msi.ps1
 ```
 
-The output is `dist\ArchiveKey-0.5.0-x64.msi`. The build script uses PyInstaller
+The output is `dist\ArchiveKey-0.6.0-x64.msi`. The build script uses PyInstaller
 and downloads the official portable WiX 3.14.1 tools into an ignored local build
 directory through GitHub CLI; those third-party binaries are never committed to
 this repository. Public alpha installers are currently unsigned, so Windows can

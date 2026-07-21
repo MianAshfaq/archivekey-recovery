@@ -91,6 +91,17 @@ class CandidateTests(unittest.TestCase):
             by_value["SPolanret@2042!"].rule, "interleave+number+symbol"
         )
 
+    def test_categorized_community_concepts_interleave_without_hints(self):
+        result = generate_ranked_candidates(
+            [], [], [], 30_000, community=["weave:Solar", "weave:Planet"]
+        )
+        by_value = {candidate.value: candidate for candidate in result}
+        self.assertEqual(by_value["Solar"].rule, "community-seed")
+        self.assertNotIn("weave:Solar", by_value)
+        self.assertEqual(
+            by_value["SPolanret"].rule, "community-concept-interleave"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

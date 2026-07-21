@@ -25,6 +25,7 @@ COMMUNITY_PACK_URL = (
     "archivekey-recovery/main/wordlists/community-seeds.txt"
 )
 COMMUNITY_PACK_MAX_BYTES = 128 * 1024
+COMMUNITY_PACK_REQUIRED_MARKER = "weave:"
 
 
 # ArchiveKey's interface deliberately uses only the Python standard library so
@@ -84,6 +85,7 @@ class ArchiveKeyApp(tk.Tk):
         self.community_enabled_var = tk.BooleanVar(value=False)
         self.community_status_var = tk.StringVar(value="GitHub: not downloaded")
         self.community_words: tuple[str, ...] = ()
+        self.community_pack_current = False
         self.community_worker: threading.Thread | None = None
         self.status_var = tk.StringVar(value="Ready to begin")
         self.status_detail_var = tk.StringVar(value="Select an archive and add what you remember.")
@@ -713,7 +715,7 @@ class ArchiveKeyApp(tk.Tk):
             if key not in seen:
                 seen.add(key)
                 words.append(value)
-            if len(words) >= 256:
+            if len(words) >= 512:
                 break
         if len(words) < 25:
             raise ValueError("The downloaded community pack did not contain enough valid seeds.")
@@ -730,11 +732,21 @@ class ArchiveKeyApp(tk.Tk):
             self.community_words = self._parse_community_pack(
                 cache.read_text(encoding="utf-8", errors="strict")
             )
-            self.community_status_var.set(
-                f"Cached: {len(self.community_words)} generic seeds · enable to use"
+            self.community_pack_current = any(
+                word.casefold().startswith(COMMUNITY_PACK_REQUIRED_MARKER)
+                for word in self.community_words
             )
+            if self.community_pack_current:
+                self.community_status_var.set(
+                    f"Cached: {len(self.community_words)} generic seeds · enable to use"
+                )
+            else:
+                self.community_status_var.set(
+                    f"Cached basic pack: {len(self.community_words)} seeds · enable to update"
+                )
         except (OSError, UnicodeError, ValueError):
             self.community_words = ()
+            self.community_pack_current = False
             self.community_status_var.set("Cached pack is invalid · update required")
 
     def _toggle_community_pack(self) -> None:
@@ -745,7 +757,7 @@ class ArchiveKeyApp(tk.Tk):
                     f"Cached: {len(self.community_words)} generic seeds · currently disabled"
                 )
             return
-        if self.community_words:
+        if self.community_words and self.community_pack_current:
             self._set_network_badge("ONLINE PACK  •  READY", COLORS["cyan"])
             self.community_status_var.set(
                 f"Enabled: {len(self.community_words)} generic seeds · no data is uploaded"
@@ -777,6 +789,13 @@ class ArchiveKeyApp(tk.Tk):
                     raise ValueError("The community pack is larger than the safe download limit.")
                 text = data.decode("utf-8", errors="strict")
                 words = self._parse_community_pack(text)
+                if not any(
+                    word.casefold().startswith(COMMUNITY_PACK_REQUIRED_MARKER)
+                    for word in words
+                ):
+                    raise ValueError(
+                        "The downloaded community pack is an older unsupported version."
+                    )
                 cache = self._community_cache_path()
                 cache.parent.mkdir(parents=True, exist_ok=True)
                 temporary = cache.with_suffix(".tmp")
@@ -973,6 +992,10 @@ class ArchiveKeyApp(tk.Tk):
                     self._log(str(payload))
                 elif kind == "community_done":
                     self.community_words = tuple(payload)
+                    self.community_pack_current = any(
+                        word.casefold().startswith(COMMUNITY_PACK_REQUIRED_MARKER)
+                        for word in self.community_words
+                    )
                     self.community_enabled_var.set(True)
                     self.community_update_button.configure(state="normal")
                     self.community_status_var.set(
