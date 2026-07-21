@@ -16,7 +16,8 @@ version, reproduction steps, impact, and any proposed mitigation.
 - Recovered passwords are not written to logs by default.
 - The original archive is never modified.
 - Extraction is performed only after independent password verification.
-- Downloadable rule packs must be checksummed and signed before installation.
+- Downloaded data packs must be plain text, size-bounded, and schema-validated;
+  any executable update content must be cryptographically signed.
 - No release may contain real user passwords, archive hashes, or private files.
 
 ArchiveKey is alpha software. Review recovery and extraction destinations before

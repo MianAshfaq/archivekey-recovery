@@ -140,6 +140,7 @@ def generate_ranked_candidates(
     clues: Iterable[str],
     years: Iterable[int] = (),
     max_candidates: int = 250_000,
+    community: Iterable[str] = (),
 ) -> list[Candidate]:
     """Build a probability-ordered grammar of personalized password candidates.
 
@@ -169,6 +170,7 @@ def generate_ranked_candidates(
 
     guesses = list(_clean_lines(exact))
     remembered_clues = list(_clean_lines(clues))
+    community_seeds = list(_clean_lines(community))[:256]
 
     observed_numbers: list[str] = []
     observed_symbols: list[str] = []
@@ -214,6 +216,17 @@ def generate_ranked_candidates(
             add_base(variant, clue_cost + variant_index * 0.12, "clue")
         for alias_index, alias in enumerate(_acronyms(clue)):
             add_base(alias, clue_cost + 0.25 + alias_index * 0.08, "acronym")
+
+    community_bases: list[tuple[str, float, str]] = []
+    seen_community_bases: set[str] = set()
+    for seed_index, seed in enumerate(community_seeds):
+        seed_cost = 4.0 + _rank_cost(seed_index, 0.10)
+        for variant_index, variant in enumerate(_case_variants(seed)[:3]):
+            if variant and variant not in seen_community_bases:
+                seen_community_bases.add(variant)
+                community_bases.append(
+                    (variant, seed_cost + variant_index * 0.15, "community-seed")
+                )
 
     numbers = _ordered_unique(
         (*observed_numbers, *(str(year) for year in years), *COMMON_NUMBERS)
@@ -339,6 +352,65 @@ def generate_ranked_candidates(
                         "two-stems+number",
                     )
 
+    # When personal information exists, mix a bounded high-priority slice with
+    # community concepts in both orders before expanding generic-only seeds.
+    # Community-to-community pairs are intentionally not generated.
+    for personal, personal_score, _personal_source in bases[:24]:
+        for generic, generic_score, _generic_source in community_bases[:64]:
+            if personal.casefold() == generic.casefold():
+                continue
+            for separator_index, separator in enumerate(separators[:4]):
+                mix_score = (
+                    3.4
+                    + personal_score
+                    + generic_score
+                    + _rank_cost(separator_index, 0.08)
+                )
+                add(
+                    f"{personal}{separator}{generic}",
+                    mix_score,
+                    "personal+community-mix",
+                )
+                add(
+                    f"{generic}{separator}{personal}",
+                    mix_score + 0.08,
+                    "community+personal-mix",
+                )
+
+    # Tier 4: an optional downloaded community pack. Community seeds use a
+    # deliberately bounded grammar and are ranked after personal information.
+    # This prevents a generic pack from crowding out high-value personal mixes.
+    for base, base_score, source in community_bases:
+        add(base, base_score, source)
+        for leet_index, leet in enumerate(_leet_variants(base, limit=8)):
+            add(
+                leet,
+                base_score + 2.8 + _rank_cost(leet_index, 0.08),
+                "community-leet-mutation",
+            )
+        for number_index, number in enumerate(numbers[:20]):
+            number_cost = _rank_cost(number_index, 0.12)
+            for separator_index, separator in enumerate(separators[:6]):
+                separator_cost = _rank_cost(separator_index, 0.08)
+                prefix = f"{base}{separator}{number}"
+                add(
+                    prefix,
+                    base_score + 0.9 + number_cost + separator_cost,
+                    "community-seed+number",
+                )
+                for symbol_index, symbol in enumerate(symbols[:6]):
+                    symbol_cost = _rank_cost(symbol_index, 0.06)
+                    add(
+                        prefix + symbol,
+                        base_score + 1.05 + number_cost + separator_cost + symbol_cost,
+                        "community-seed+number+symbol",
+                    )
+                    add(
+                        prefix + symbol * 2,
+                        base_score + 1.28 + number_cost + separator_cost + symbol_cost,
+                        "community-seed+number+repeated-symbol",
+                    )
+
     ranked = [Candidate(value, score, rule) for value, (score, _seq, rule) in pool.items()]
     ranked.sort(key=lambda item: (item.score, pool[item.value][1]))
     return ranked[:max_candidates]
@@ -349,9 +421,12 @@ def generate_candidates(
     clues: Iterable[str],
     years: Iterable[int] = (),
     max_candidates: int = 250_000,
+    community: Iterable[str] = (),
 ) -> list[str]:
     """Backward-compatible string-only view of the ranked candidate grammar."""
     return [
         candidate.value
-        for candidate in generate_ranked_candidates(exact, clues, years, max_candidates)
+        for candidate in generate_ranked_candidates(
+            exact, clues, years, max_candidates, community
+        )
     ]

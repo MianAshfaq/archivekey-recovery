@@ -55,6 +55,30 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual(by_value["Orion@NorthLake"].rule, "stem+separator+stem")
         self.assertEqual(by_value["NorthLake@Orion"].rule, "stem+separator+stem")
 
+    def test_community_pack_works_without_personal_hints(self):
+        result = generate_ranked_candidates(
+            [], [], [2042], 10_000, community=["Archive", "Welcome"]
+        )
+        by_value = {candidate.value: candidate for candidate in result}
+        self.assertEqual(by_value["Archive"].rule, "community-seed")
+        self.assertEqual(by_value["Archive@2042"].rule, "community-seed+number")
+        self.assertEqual(
+            by_value["Archive@2042!"].rule, "community-seed+number+symbol"
+        )
+        self.assertGreater(len(result), 1_000)
+
+    def test_personal_clue_is_mixed_with_community_seed(self):
+        result = generate_ranked_candidates(
+            [], ["NorthLake"], [2042], 20_000, community=["Archive"]
+        )
+        by_value = {candidate.value: candidate for candidate in result}
+        self.assertEqual(
+            by_value["NorthLake@Archive"].rule, "personal+community-mix"
+        )
+        self.assertEqual(
+            by_value["Archive@NorthLake"].rule, "community+personal-mix"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

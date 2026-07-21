@@ -50,6 +50,8 @@ Synthetic regression fixtures verify that high-probability structured candidates
 - Adaptive mutation of guesses across case, numbers, separators, endings, and bounded leetspeak
 - Two-way mixing of guess-derived stems with remembered clue words and patterns
 - In-app generated-plan preview with strategy counts and example candidates
+- Opt-in GitHub community seed pack for recovery without personal hints
+- Explicit offline/online-pack status with local caching and no archive upload
 - Probability-scored password grammar without leaked-password lists
 - Country/place aliases and acronym generation
 - `stem + separator + number + trailing symbol` rules using synthetic fixtures
@@ -91,7 +93,7 @@ python -m pip install -r requirements-build.txt
 .\build_msi.ps1
 ```
 
-The output is `dist\ArchiveKey-0.4.0-x64.msi`. The build script uses PyInstaller
+The output is `dist\ArchiveKey-0.5.0-x64.msi`. The build script uses PyInstaller
 and downloads the official portable WiX 3.14.1 tools into an ignored local build
 directory through GitHub CLI; those third-party binaries are never committed to
 this repository. Public alpha installers are currently unsigned, so Windows can
@@ -114,6 +116,10 @@ python -m unittest discover -s tests -v
 6. Signed Windows installer, localization, accessibility, and recovery reports
 
 Do not use ArchiveKey on data you do not own or lack permission to access.
+
+## Project creator and developer
+
+**Muhammad Ashfaq** — [GitHub](https://github.com/MianAshfaq) · [Cyberoly](https://cyberoly.com) · [Facebook](https://fb.com/MianAshfaq012)
 
 ## License
 

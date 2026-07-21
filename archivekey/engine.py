@@ -27,6 +27,7 @@ class RecoveryConfig:
     exact_passwords: tuple[str, ...]
     clues: tuple[str, ...]
     years: tuple[int, ...]
+    community_words: tuple[str, ...] = ()
     max_candidates: int = 250_000
     john_directory: str = ""
 
@@ -69,14 +70,19 @@ class RecoveryEngine:
         tools = Toolchain.discover(config.john_directory)
         self.log(tools.describe())
         ranked_candidates = generate_ranked_candidates(
-            config.exact_passwords, config.clues, config.years, config.max_candidates
+            config.exact_passwords,
+            config.clues,
+            config.years,
+            config.max_candidates,
+            community=config.community_words,
         )
         candidates = [candidate.value for candidate in ranked_candidates]
         direct_count = sum(candidate.rule == "possible-guess" for candidate in ranked_candidates)
         generated_count = len(ranked_candidates) - direct_count
         self.log(
             f"Plan inputs: {len(config.exact_passwords)} possible guesses and "
-            f"{len(config.clues)} remembered clues."
+            f"{len(config.clues)} remembered clues and "
+            f"{len(config.community_words)} community seeds."
         )
         self.log(
             f"Mutation engine built {len(candidates):,} probability-ranked candidates: "
@@ -97,7 +103,9 @@ class RecoveryEngine:
                 )
                 self.log(f"Generated examples: {preview}")
         if not ranked_candidates:
-            raise RecoveryError("Add at least one possible password guess or remembered clue.")
+            raise RecoveryError(
+                "Add a possible password guess or remembered clue, or enable the community pack."
+            )
 
         # RAR 5 is verified by ArchiveKey's own PBKDF2 implementation. No John
         # process or per-candidate UnRAR launch is required for this path.

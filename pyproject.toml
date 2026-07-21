@@ -4,8 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "archivekey-recovery"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local, probability-ranked password recovery for authorized archives"
+authors = [{ name = "Muhammad Ashfaq" }]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

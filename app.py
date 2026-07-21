@@ -6,6 +6,9 @@ import queue
 import sys
 import threading
 import tkinter as tk
+import urllib.error
+import urllib.request
+import webbrowser
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +17,14 @@ from tkinter import filedialog, messagebox, ttk
 from archivekey.candidates import generate_ranked_candidates
 from archivekey.engine import RecoveryConfig, RecoveryEngine
 from archivekey.tools import Toolchain
+from archivekey import __version__
+
+
+COMMUNITY_PACK_URL = (
+    "https://raw.githubusercontent.com/MianAshfaq/"
+    "archivekey-recovery/main/wordlists/community-seeds.txt"
+)
+COMMUNITY_PACK_MAX_BYTES = 128 * 1024
 
 
 # ArchiveKey's interface deliberately uses only the Python standard library so
@@ -70,12 +81,17 @@ class ArchiveKeyApp(tk.Tk):
         self.years_var = tk.StringVar(value=f"1947, 2000-{datetime.now().year}")
         self.limit_var = tk.StringVar(value="250000")
         self.authorized_var = tk.BooleanVar(value=False)
+        self.community_enabled_var = tk.BooleanVar(value=False)
+        self.community_status_var = tk.StringVar(value="GitHub: not downloaded")
+        self.community_words: tuple[str, ...] = ()
+        self.community_worker: threading.Thread | None = None
         self.status_var = tk.StringVar(value="Ready to begin")
         self.status_detail_var = tk.StringVar(value="Select an archive and add what you remember.")
         self._logo_image: tk.PhotoImage | None = None
 
         self._configure_styles()
         self._build()
+        self._load_cached_community_pack()
         self.after(150, self._drain_events)
 
     def _configure_styles(self) -> None:
@@ -164,7 +180,41 @@ class ArchiveKeyApp(tk.Tk):
             fg=COLORS["muted"],
             justify="left",
             font=("Segoe UI", 9),
-        ).pack(anchor="w", padx=14, pady=(0, 13))
+        ).pack(anchor="w", padx=14, pady=(0, 10))
+        tk.Frame(security, bg=COLORS["border"], height=1).pack(fill="x", padx=14)
+        tk.Label(
+            security,
+            text="PROJECT CREATOR & DEVELOPER",
+            bg=COLORS["surface"],
+            fg=COLORS["subtle"],
+            font=("Segoe UI Semibold", 7),
+        ).pack(anchor="w", padx=14, pady=(10, 2))
+        tk.Label(
+            security,
+            text="Muhammad Ashfaq",
+            bg=COLORS["surface"],
+            fg=COLORS["cyan"],
+            font=("Segoe UI Semibold", 9),
+        ).pack(anchor="w", padx=14, pady=(0, 5))
+        social_links = tk.Frame(security, bg=COLORS["surface"])
+        social_links.pack(anchor="w", padx=11, pady=(0, 11))
+        for label_text, url in (
+            ("GitHub", "https://github.com/MianAshfaq"),
+            ("Cyberoly", "https://cyberoly.com"),
+            ("Facebook", "https://fb.com/MianAshfaq012"),
+        ):
+            link = tk.Label(
+                social_links,
+                text=label_text,
+                bg=COLORS["surface"],
+                fg=COLORS["muted"],
+                activeforeground=COLORS["cyan"],
+                cursor="hand2",
+                padx=3,
+                font=("Segoe UI Semibold", 8, "underline"),
+            )
+            link.pack(side="left")
+            link.bind("<Button-1>", lambda _event, target=url: webbrowser.open(target, new=2))
 
     def _workflow_step(
         self,
@@ -230,7 +280,7 @@ class ArchiveKeyApp(tk.Tk):
             fg=COLORS["muted"],
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(4, 0))
-        badge = tk.Label(
+        self.network_badge = tk.Label(
             header,
             text="  PRIVATE  •  OFFLINE  ",
             bg=COLORS["surface"],
@@ -239,7 +289,7 @@ class ArchiveKeyApp(tk.Tk):
             padx=8,
             pady=7,
         )
-        badge.pack(side="right", anchor="n", pady=4)
+        self.network_badge.pack(side="right", anchor="n", pady=4)
 
         body = tk.Frame(workspace, bg=COLORS["window"])
         body.grid(row=1, column=0, sticky="nsew", padx=30, pady=(0, 26))
@@ -435,6 +485,46 @@ class ArchiveKeyApp(tk.Tk):
             font=("Segoe UI Semibold", 7),
         ).pack(side="right")
 
+        community = tk.Frame(
+            card,
+            bg=COLORS["surface_alt"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
+        community.pack(fill="x", padx=17, pady=(0, 10))
+        community_top = tk.Frame(community, bg=COLORS["surface_alt"])
+        community_top.pack(fill="x", padx=9, pady=(7, 2))
+        tk.Checkbutton(
+            community_top,
+            text="Use community pack",
+            variable=self.community_enabled_var,
+            command=self._toggle_community_pack,
+            bg=COLORS["surface_alt"],
+            activebackground=COLORS["surface_alt"],
+            fg=COLORS["text"],
+            activeforeground=COLORS["text"],
+            selectcolor=COLORS["field"],
+            font=("Segoe UI Semibold", 8),
+            cursor="hand2",
+            bd=0,
+            highlightthickness=0,
+        ).pack(side="left")
+        self.community_update_button = self._button(
+            community_top, "Update", self._update_community_pack, primary=True
+        )
+        self.community_update_button.configure(padx=9, pady=4, font=("Segoe UI Semibold", 8))
+        self.community_update_button.pack(side="right")
+        tk.Label(
+            community,
+            textvariable=self.community_status_var,
+            bg=COLORS["surface_alt"],
+            fg=COLORS["subtle"],
+            anchor="w",
+            justify="left",
+            wraplength=250,
+            font=("Segoe UI", 8),
+        ).pack(fill="x", padx=12, pady=(0, 7))
+
         log_border = tk.Frame(card, bg=COLORS["border"], padx=1, pady=1)
         log_border.pack(fill="both", expand=True, padx=17, pady=(0, 17))
         self.log_text = tk.Text(
@@ -605,6 +695,104 @@ class ArchiveKeyApp(tk.Tk):
         if selected:
             self.john_var.set(selected)
 
+    @staticmethod
+    def _community_cache_path() -> Path:
+        return Path.home() / ".archivekey" / "community-seeds.txt"
+
+    @staticmethod
+    def _parse_community_pack(text: str) -> tuple[str, ...]:
+        words: list[str] = []
+        seen: set[str] = set()
+        for raw in text.splitlines():
+            value = raw.strip()
+            if not value or value.startswith("#"):
+                continue
+            if len(value) > 64 or not all(char.isprintable() for char in value):
+                continue
+            key = value.casefold()
+            if key not in seen:
+                seen.add(key)
+                words.append(value)
+            if len(words) >= 256:
+                break
+        if len(words) < 25:
+            raise ValueError("The downloaded community pack did not contain enough valid seeds.")
+        return tuple(words)
+
+    def _set_network_badge(self, text: str, color: str) -> None:
+        self.network_badge.configure(text=f"  {text}  ", fg=color)
+
+    def _load_cached_community_pack(self) -> None:
+        cache = self._community_cache_path()
+        if not cache.is_file():
+            return
+        try:
+            self.community_words = self._parse_community_pack(
+                cache.read_text(encoding="utf-8", errors="strict")
+            )
+            self.community_status_var.set(
+                f"Cached: {len(self.community_words)} generic seeds · enable to use"
+            )
+        except (OSError, UnicodeError, ValueError):
+            self.community_words = ()
+            self.community_status_var.set("Cached pack is invalid · update required")
+
+    def _toggle_community_pack(self) -> None:
+        if not self.community_enabled_var.get():
+            self._set_network_badge("PRIVATE  •  OFFLINE", COLORS["success"])
+            if self.community_words:
+                self.community_status_var.set(
+                    f"Cached: {len(self.community_words)} generic seeds · currently disabled"
+                )
+            return
+        if self.community_words:
+            self._set_network_badge("ONLINE PACK  •  READY", COLORS["cyan"])
+            self.community_status_var.set(
+                f"Enabled: {len(self.community_words)} generic seeds · no data is uploaded"
+            )
+        else:
+            self._update_community_pack()
+
+    def _update_community_pack(self) -> None:
+        if self.community_worker and self.community_worker.is_alive():
+            return
+        self.community_enabled_var.set(True)
+        self.community_update_button.configure(state="disabled")
+        self.community_status_var.set("Downloading public seeds from GitHub…")
+        self._set_network_badge("ONLINE  •  DOWNLOADING", COLORS["cyan"])
+        self._log("Connecting to GitHub to download the public community seed pack.")
+
+        def work() -> None:
+            try:
+                request = urllib.request.Request(
+                    COMMUNITY_PACK_URL,
+                    headers={"User-Agent": f"ArchiveKey/{__version__}"},
+                )
+                with urllib.request.urlopen(request, timeout=15) as response:
+                    final_url = response.geturl()
+                    if not final_url.startswith("https://raw.githubusercontent.com/"):
+                        raise ValueError("GitHub returned an unexpected download location.")
+                    data = response.read(COMMUNITY_PACK_MAX_BYTES + 1)
+                if len(data) > COMMUNITY_PACK_MAX_BYTES:
+                    raise ValueError("The community pack is larger than the safe download limit.")
+                text = data.decode("utf-8", errors="strict")
+                words = self._parse_community_pack(text)
+                cache = self._community_cache_path()
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                temporary = cache.with_suffix(".tmp")
+                temporary.write_bytes(data)
+                temporary.replace(cache)
+                self.events.put(("community_done", words))
+            except Exception as exc:
+                self.events.put(("community_error", str(exc)))
+
+        self.community_worker = threading.Thread(
+            target=work,
+            daemon=True,
+            name="archivekey-community-pack",
+        )
+        self.community_worker.start()
+
     def _check_tools(self) -> None:
         description = Toolchain.discover(self.john_var.get()).describe()
         self._log(f"Tool check: {description}")
@@ -621,14 +809,20 @@ class ArchiveKeyApp(tk.Tk):
                 raise ValueError("Candidate limit must be between 1 and 5,000,000.")
             guesses = self._lines(self.exact_text)
             clues = self._lines(self.clue_text)
-            if not guesses and not clues:
-                raise ValueError("Add at least one password guess or remembered clue first.")
+            community = self.community_words if self.community_enabled_var.get() else ()
+            if self.community_enabled_var.get() and not community:
+                raise ValueError("The community pack is not ready. Click Update and try again.")
+            if not guesses and not clues and not community:
+                raise ValueError(
+                    "Add a password guess or clue, or enable the GitHub community pack."
+                )
             preview_limit = min(limit, 50_000)
             ranked = generate_ranked_candidates(
                 guesses,
                 clues,
                 self._parse_years(),
                 preview_limit,
+                community=community,
             )
         except ValueError as exc:
             messagebox.showerror("Cannot preview this plan", str(exc))
@@ -650,7 +844,8 @@ class ArchiveKeyApp(tk.Tk):
         )
         messagebox.showinfo(
             "Generated mix preview",
-            f"Inputs: {len(guesses)} guesses + {len(clues)} clues\n"
+            f"Inputs: {len(guesses)} guesses + {len(clues)} clues + "
+            f"{len(community)} community seeds\n"
             f"Plan preview: {len(ranked):,} candidates\n"
             f"Supplied literally: {direct_count:,}\n"
             f"Generated or mixed: {len(derived):,}{capped_text}\n\n"
@@ -659,7 +854,8 @@ class ArchiveKeyApp(tk.Tk):
         )
         self.status_var.set("Generated mix previewed")
         self.status_detail_var.set(
-            f"{len(derived):,} derived candidates from {len(guesses) + len(clues)} remembered inputs."
+            f"{len(derived):,} derived candidates; community pack: "
+            f"{'enabled' if community else 'off'}."
         )
         self._log(
             f"Preview: {direct_count:,} supplied candidates and {len(derived):,} generated/mixed candidates."
@@ -703,12 +899,22 @@ class ArchiveKeyApp(tk.Tk):
                 raise ValueError("Choose an output folder.")
             if not 1 <= limit <= 5_000_000:
                 raise ValueError("Candidate limit must be between 1 and 5,000,000.")
+            guesses = self._lines(self.exact_text)
+            clues = self._lines(self.clue_text)
+            community = self.community_words if self.community_enabled_var.get() else ()
+            if self.community_enabled_var.get() and not community:
+                raise ValueError("The community pack is not ready. Click Update and try again.")
+            if not guesses and not clues and not community:
+                raise ValueError(
+                    "Add a password guess or clue, or enable the GitHub community pack."
+                )
             config = RecoveryConfig(
                 archive=archive,
                 output_directory=output,
-                exact_passwords=self._lines(self.exact_text),
-                clues=self._lines(self.clue_text),
+                exact_passwords=guesses,
+                clues=clues,
                 years=self._parse_years(),
+                community_words=community,
                 max_candidates=limit,
                 john_directory=self.john_var.get(),
             )
@@ -765,6 +971,33 @@ class ArchiveKeyApp(tk.Tk):
                 kind, payload = self.events.get_nowait()
                 if kind == "log":
                     self._log(str(payload))
+                elif kind == "community_done":
+                    self.community_words = tuple(payload)
+                    self.community_enabled_var.set(True)
+                    self.community_update_button.configure(state="normal")
+                    self.community_status_var.set(
+                        f"Enabled: {len(self.community_words)} generic seeds · no data uploaded"
+                    )
+                    self._set_network_badge("ONLINE PACK  •  READY", COLORS["cyan"])
+                    self._log(
+                        f"Community pack ready: {len(self.community_words)} generic GitHub seeds cached locally."
+                    )
+                    messagebox.showinfo(
+                        "Community pack ready",
+                        f"Downloaded and validated {len(self.community_words)} generic seeds.\n\n"
+                        "The archive and your hints were not uploaded. The pack can now be used without personal hints.",
+                    )
+                elif kind == "community_error":
+                    self.community_enabled_var.set(False)
+                    self.community_update_button.configure(state="normal")
+                    self.community_status_var.set("Update failed · offline mode restored")
+                    self._set_network_badge("OFFLINE  •  UPDATE FAILED", COLORS["danger"])
+                    self._log(f"ERROR: Community pack update failed: {payload}")
+                    messagebox.showerror(
+                        "Community pack update failed",
+                        f"ArchiveKey could not download the public GitHub pack.\n\n{payload}\n\n"
+                        "No archive or hint data was uploaded.",
+                    )
                 elif kind == "error":
                     self._set_running(False)
                     self.status_var.set("Recovery stopped")
@@ -804,12 +1037,14 @@ class ArchiveKeyApp(tk.Tk):
                                 pass
                     else:
                         self.status_var.set("Plan completed")
-                        self.status_detail_var.set("No candidate matched. Refine the clues and try again.")
+                        self.status_detail_var.set(
+                            "No candidate matched. Refine clues or expand the candidate limit."
+                        )
                         self.status_dot.configure(fg=COLORS["warning"])
                         self._log("No match in this candidate set. Add stronger clues or expand the plan.")
                         messagebox.showwarning(
                             "No match in this plan",
-                            "No supplied or generated candidate matched. Add more personal clues or expand the plan.",
+                            "No supplied or generated candidate matched. Add personal clues, enable the community pack, or expand the candidate limit.",
                         )
         except queue.Empty:
             pass
