@@ -79,6 +79,18 @@ class CandidateTests(unittest.TestCase):
             by_value["Archive@NorthLake"].rule, "community+personal-mix"
         )
 
+    def test_shared_character_interleave_of_two_personal_concepts(self):
+        result = generate_ranked_candidates(
+            [], ["Solar", "Planet"], [2042], 30_000
+        )
+        by_value = {candidate.value: candidate for candidate in result}
+        self.assertEqual(
+            by_value["SPolanret"].rule, "shared-character-interleave"
+        )
+        self.assertEqual(
+            by_value["SPolanret@2042!"].rule, "interleave+number+symbol"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

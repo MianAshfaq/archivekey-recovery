@@ -135,6 +135,35 @@ def _replace_match(value: str, match: re.Match[str], replacement: str) -> str:
     return value[: match.start()] + replacement + value[match.end() :]
 
 
+def _shared_character_interleave(
+    left: str, right: str, start_left: bool = True
+) -> str:
+    """Weave two concepts while consuming equal next characters only once."""
+    left_index = 0
+    right_index = 0
+    take_left = start_left
+    output: list[str] = []
+    while left_index < len(left) or right_index < len(right):
+        if (
+            left_index < len(left)
+            and right_index < len(right)
+            and left[left_index].casefold() == right[right_index].casefold()
+        ):
+            output.append(left[left_index])
+            left_index += 1
+            right_index += 1
+            take_left = not take_left
+        elif (take_left and left_index < len(left)) or right_index >= len(right):
+            output.append(left[left_index])
+            left_index += 1
+            take_left = False
+        else:
+            output.append(right[right_index])
+            right_index += 1
+            take_left = True
+    return "".join(output)
+
+
 def generate_ranked_candidates(
     exact: Iterable[str],
     clues: Iterable[str],
@@ -188,6 +217,26 @@ def generate_ranked_candidates(
     for clue in remembered_clues:
         if clue.isdigit():
             observed_numbers.append(clue)
+
+    personal_concepts: list[str] = []
+    seen_concepts: set[str] = set()
+
+    def add_concept(value: str) -> None:
+        clean = value.strip()
+        key = clean.casefold()
+        if clean and key not in seen_concepts:
+            seen_concepts.add(key)
+            personal_concepts.append(clean)
+
+    for _guess, stems in guess_parts:
+        preferred = next(
+            (stem for stem in stems if re.fullmatch(r"[A-Za-z][A-Za-z ]*", stem)),
+            stems[0] if stems else "",
+        )
+        add_concept(preferred)
+    for clue in remembered_clues:
+        if not clue.isdigit():
+            add_concept(clue)
 
     bases: list[tuple[str, float, str]] = []
     seen_bases: set[str] = set()
@@ -351,6 +400,44 @@ def generate_ranked_candidates(
                         combined_score + 0.45 + _rank_cost(number_index, 0.15),
                         "two-stems+number",
                     )
+
+    # Tier 3b: character-level weaving for passwords formed by interleaving two
+    # remembered concepts. Keep this bounded to personal concepts and both
+    # starting directions; generic community-to-community weaving is excluded.
+    for left_index, left in enumerate(personal_concepts[:16]):
+        for right in personal_concepts[left_index + 1 : 16]:
+            woven_values = (
+                _shared_character_interleave(left, right, start_left=True),
+                _shared_character_interleave(left, right, start_left=False),
+                _shared_character_interleave(right, left, start_left=True),
+                _shared_character_interleave(right, left, start_left=False),
+            )
+            for woven_index, woven in enumerate(dict.fromkeys(woven_values)):
+                woven_score = 2.8 + _rank_cost(woven_index, 0.10)
+                for case_index, case_variant in enumerate(_case_variants(woven)[:4]):
+                    case_score = woven_score + case_index * 0.12
+                    add(
+                        case_variant,
+                        case_score,
+                        "shared-character-interleave",
+                    )
+                    for number_index, number in enumerate(numbers[:6]):
+                        separator = separators[number_index % min(len(separators), 4)]
+                        numbered = f"{case_variant}{separator}{number}"
+                        add(
+                            numbered,
+                            case_score + 0.65 + _rank_cost(number_index, 0.10),
+                            "interleave+number",
+                        )
+                        for symbol_index, symbol in enumerate(symbols[:3]):
+                            add(
+                                numbered + symbol,
+                                case_score
+                                + 0.82
+                                + _rank_cost(number_index, 0.10)
+                                + _rank_cost(symbol_index, 0.06),
+                                "interleave+number+symbol",
+                            )
 
     # When personal information exists, mix a bounded high-priority slice with
     # community concepts in both orders before expanding generic-only seeds.

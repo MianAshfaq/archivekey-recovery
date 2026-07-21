@@ -49,6 +49,7 @@ Synthetic regression fixtures verify that high-probability structured candidates
 - Direct testing of uncertain password guesses before generated combinations
 - Adaptive mutation of guesses across case, numbers, separators, endings, and bounded leetspeak
 - Two-way mixing of guess-derived stems with remembered clue words and patterns
+- Shared-character interleaving of two remembered concepts, including both starting directions
 - In-app generated-plan preview with strategy counts and example candidates
 - Opt-in GitHub community seed pack for recovery without personal hints
 - Explicit offline/online-pack status with local caching and no archive upload
