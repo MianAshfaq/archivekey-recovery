@@ -481,12 +481,45 @@ def generate_ranked_candidates(
                     "community+personal-mix",
                 )
 
-    # Tier 3c: concept-lattice weaving. Only seeds explicitly categorized by
+    # Tier 3c: a compact high-priority grammar for categorized concept roots.
+    # Their probability should depend on rank within the category, not their
+    # later physical position in the combined pack. This keeps human patterns
+    # such as concept + remembered year + repeated symbol inside the default
+    # plan without expanding every generic seed in the same way.
+    weave_concepts = community_weave_concepts[:256]
+    for concept_index, concept in enumerate(weave_concepts):
+        concept_cost = 2.60 + _rank_cost(concept_index, 0.025)
+        for case_index, case_variant in enumerate(_case_variants(concept)[:1]):
+            case_cost = concept_cost + case_index * 0.12
+            add(case_variant, case_cost, "categorized-community-seed")
+            for number_index, number in enumerate(numbers[:8]):
+                number_cost = _rank_cost(number_index, 0.08)
+                for separator_index, separator in enumerate(separators[:2]):
+                    prefix = f"{case_variant}{separator}{number}"
+                    prefix_cost = (
+                        case_cost
+                        + 0.70
+                        + number_cost
+                        + _rank_cost(separator_index, 0.06)
+                    )
+                    add(prefix, prefix_cost, "categorized-concept+number")
+                    for symbol_index, symbol in enumerate(symbols[:3]):
+                        symbol_cost = _rank_cost(symbol_index, 0.05)
+                        for repeat in (1, 2, 3):
+                            add(
+                                prefix + symbol * repeat,
+                                prefix_cost
+                                + 0.85
+                                + (repeat - 1) * 0.18
+                                + symbol_cost,
+                                "categorized-concept+number+symbol-run",
+                            )
+
+    # Tier 3d: concept-lattice weaving. Only seeds explicitly categorized by
     # the public pack are paired, which prevents an all-words Cartesian
     # explosion. Both starting directions are considered and equal next
     # characters are consumed once. This reaches human-made compound strings
     # without storing complete passwords or enumerating printable characters.
-    weave_concepts = community_weave_concepts[:256]
     for left_index, left in enumerate(weave_concepts):
         left_cost = _rank_cost(left_index, 0.02)
         for right_index in range(left_index + 1, len(weave_concepts)):
