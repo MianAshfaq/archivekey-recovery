@@ -19,3 +19,5 @@ venv/
 personal-seeds.txt
 recovery-status.txt
 .recovery-tools/
+.build-tools/
+installer/obj/

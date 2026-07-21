@@ -69,6 +69,23 @@ cd C:\path\to\archivekey-recovery
 python app.py
 ```
 
+## Build the Windows MSI
+
+The MSI build creates a standalone GUI executable and packages it as a per-user
+Windows Installer package with Desktop and Start Menu shortcuts:
+
+```powershell
+python -m pip install -r requirements-build.txt
+.\build_msi.ps1
+```
+
+The output is `dist\ArchiveKey-0.2.0-x64.msi`. The build script uses PyInstaller
+and downloads the official portable WiX 3.14.1 tools into an ignored local build
+directory through GitHub CLI; those third-party binaries are never committed to
+this repository. Public alpha installers are currently unsigned, so Windows can
+display an unknown-publisher warning until the project obtains a code-signing
+certificate.
+
 ## Test
 
 ```powershell
