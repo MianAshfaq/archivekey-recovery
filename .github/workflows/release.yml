@@ -26,6 +26,8 @@ jobs:
           }
       - name: Build MSI
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: .\build_msi.ps1
       - name: Sign update asset
         shell: pwsh
