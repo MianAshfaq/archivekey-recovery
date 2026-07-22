@@ -18,7 +18,15 @@ version, reproduction steps, impact, and any proposed mitigation.
 - Extraction is performed only after independent password verification.
 - Downloaded data packs must be plain text, size-bounded, and schema-validated;
   any executable update content must be cryptographically signed.
+- Automatic installers must match GitHub's SHA-256 digest and a detached Ed25519
+  signature pinned in the application. Unsigned releases may be announced but
+  must never be installed automatically.
 - No release may contain real user passwords, archive hashes, or private files.
+
+The Ed25519 private update key is never committed. The repository stores only
+the public verification key. GitHub Actions receives the private key through the
+`ARCHIVEKEY_UPDATE_SIGNING_KEY_B64` repository secret. The maintainer's recovery
+copy is protected by Windows DPAPI outside the repository.
 
 ArchiveKey is alpha software. Review recovery and extraction destinations before
 using it with irreplaceable data.

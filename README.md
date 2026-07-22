@@ -60,6 +60,9 @@ performing an unrestricted Cartesian product over every downloaded seed.
 - In-app generated-plan preview with strategy counts and example candidates
 - Opt-in GitHub community seed pack for recovery without personal hints
 - Explicit offline/online-pack status with local caching and no archive upload
+- Optional 24-hour GitHub release checks plus an always-available manual check
+- SHA-256 and pinned Ed25519 verification before any automatic MSI installation
+- Automatic close, passive Windows upgrade, restart, and post-update thank-you message
 - Probability-scored password grammar without leaked-password lists
 - Country/place aliases and acronym generation
 - `stem + separator + number + trailing symbol` rules using synthetic fixtures
@@ -88,6 +91,7 @@ ArchiveKey automatically searches common installation locations for extraction t
 
 ```powershell
 cd C:\path\to\archivekey-recovery
+python -m pip install -r requirements.txt
 python app.py
 ```
 
@@ -101,12 +105,28 @@ python -m pip install -r requirements-build.txt
 .\build_msi.ps1
 ```
 
-The output is `dist\ArchiveKey-0.6.1-x64.msi`. The build script uses PyInstaller
+The output is `dist\ArchiveKey-0.7.0-x64.msi`. The build script uses PyInstaller
 and downloads the official portable WiX 3.14.1 tools into an ignored local build
 directory through GitHub CLI; those third-party binaries are never committed to
 this repository. Public alpha installers are currently unsigned, so Windows can
 display an unknown-publisher warning until the project obtains a code-signing
-certificate.
+certificate. ArchiveKey's in-app updater additionally requires a detached
+Ed25519 signature produced by the protected project release key; an unsigned
+release is announced but can never be installed automatically.
+
+## Software updates
+
+On first launch, ArchiveKey asks whether it may check the official GitHub
+releases endpoint once every 24 hours. Only the installed application version is
+sent. Automatic checks can be disabled at any time, and **Check now** remains
+available. Archive paths, clues, generated candidates, recovered passwords, and
+device identifiers are never transmitted.
+
+When a signed update is available, ArchiveKey downloads the exact MSI and its
+detached signature, validates GitHub's SHA-256 digest, verifies the pinned
+Ed25519 signature, asks for confirmation, then closes, installs, and reopens.
+The reopened version displays a thank-you confirmation. A release without the
+signature asset is limited to a manual GitHub download.
 
 ## Test
 
