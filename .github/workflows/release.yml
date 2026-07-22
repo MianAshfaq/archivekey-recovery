@@ -1,0 +1,50 @@
+name: signed-release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-sign-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -r requirements-build.txt
+      - name: Validate tag and package version
+        shell: pwsh
+        run: |
+          $packageVersion = python -c "from archivekey import __version__; print(__version__)"
+          if ("v$packageVersion" -ne "${{ github.ref_name }}") {
+            throw "Tag ${{ github.ref_name }} does not match package version $packageVersion."
+          }
+      - name: Build MSI
+        shell: pwsh
+        run: .\build_msi.ps1
+      - name: Sign update asset
+        shell: pwsh
+        env:
+          ARCHIVEKEY_UPDATE_SIGNING_KEY_B64: ${{ secrets.ARCHIVEKEY_UPDATE_SIGNING_KEY_B64 }}
+        run: |
+          $packageVersion = python -c "from archivekey import __version__; print(__version__)"
+          python scripts\sign_update.py "dist\ArchiveKey-$packageVersion-x64.msi"
+      - name: Create GitHub prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $packageVersion = python -c "from archivekey import __version__; print(__version__)"
+          $installer = "dist\ArchiveKey-$packageVersion-x64.msi"
+          $signature = "$installer.sig"
+          gh release create "${{ github.ref_name }}" $installer $signature `
+            --repo "${{ github.repository }}" `
+            --target "${{ github.sha }}" `
+            --title "ArchiveKey $packageVersion" `
+            --generate-notes `
+            --prerelease

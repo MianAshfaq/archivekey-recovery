@@ -3,8 +3,11 @@ from __future__ import annotations
 import ctypes
 import os
 import queue
+import shutil
+import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import urllib.error
 import urllib.request
@@ -17,6 +20,16 @@ from tkinter import filedialog, messagebox, ttk
 from archivekey.candidates import generate_ranked_candidates
 from archivekey.engine import RecoveryConfig, RecoveryEngine
 from archivekey.tools import Toolchain
+from archivekey.updater import (
+    ReleaseInfo,
+    UpdateError,
+    download_verified_installer,
+    fetch_newer_release,
+    load_settings,
+    run_update_helper,
+    save_settings,
+    should_check_automatically,
+)
 from archivekey import __version__
 
 
@@ -28,8 +41,9 @@ COMMUNITY_PACK_MAX_BYTES = 128 * 1024
 COMMUNITY_PACK_REQUIRED_MARKER = "weave:"
 
 
-# ArchiveKey's interface deliberately uses only the Python standard library so
-# the packaged application remains small, auditable, and fully offline.
+# ArchiveKey's interface remains native Tk. The only packaged runtime dependency
+# is cryptography, used to verify signed executable updates while recovery stays
+# fully local and available offline.
 COLORS = {
     "window": "#08111f",
     "sidebar": "#0a1628",
@@ -87,6 +101,17 @@ class ArchiveKeyApp(tk.Tk):
         self.community_words: tuple[str, ...] = ()
         self.community_pack_current = False
         self.community_worker: threading.Thread | None = None
+        self.settings_path = Path.home() / ".archivekey" / "settings.json"
+        self.settings = load_settings(self.settings_path)
+        self.automatic_update_var = tk.BooleanVar(
+            value=self.settings.get("automatic_update_checks") is True
+        )
+        self.update_status_var = tk.StringVar(
+            value=f"Version {__version__} · update status not checked"
+        )
+        self.update_worker: threading.Thread | None = None
+        self.update_timer_id: str | None = None
+        self.available_release: ReleaseInfo | None = None
         self.status_var = tk.StringVar(value="Ready to begin")
         self.status_detail_var = tk.StringVar(value="Select an archive and add what you remember.")
         self._logo_image: tk.PhotoImage | None = None
@@ -95,6 +120,8 @@ class ArchiveKeyApp(tk.Tk):
         self._build()
         self._load_cached_community_pack()
         self.after(150, self._drain_events)
+        self.after(450, self._show_update_result)
+        self.after(1000, self._initialize_update_checks)
 
     def _configure_styles(self) -> None:
         style = ttk.Style(self)
@@ -487,6 +514,46 @@ class ArchiveKeyApp(tk.Tk):
             font=("Segoe UI Semibold", 7),
         ).pack(side="right")
 
+        updates = tk.Frame(
+            card,
+            bg=COLORS["surface_alt"],
+            highlightbackground=COLORS["border"],
+            highlightthickness=1,
+        )
+        updates.pack(fill="x", padx=17, pady=(0, 8))
+        updates_top = tk.Frame(updates, bg=COLORS["surface_alt"])
+        updates_top.pack(fill="x", padx=9, pady=(7, 2))
+        tk.Checkbutton(
+            updates_top,
+            text="Automatic update checks",
+            variable=self.automatic_update_var,
+            command=self._toggle_automatic_update_checks,
+            bg=COLORS["surface_alt"],
+            activebackground=COLORS["surface_alt"],
+            fg=COLORS["text"],
+            activeforeground=COLORS["text"],
+            selectcolor=COLORS["field"],
+            font=("Segoe UI Semibold", 8),
+            cursor="hand2",
+            bd=0,
+            highlightthickness=0,
+        ).pack(side="left")
+        self.update_check_button = self._button(
+            updates_top, "Check now", lambda: self._check_for_updates(manual=True), primary=True
+        )
+        self.update_check_button.configure(padx=9, pady=4, font=("Segoe UI Semibold", 8))
+        self.update_check_button.pack(side="right")
+        tk.Label(
+            updates,
+            textvariable=self.update_status_var,
+            bg=COLORS["surface_alt"],
+            fg=COLORS["subtle"],
+            anchor="w",
+            justify="left",
+            wraplength=250,
+            font=("Segoe UI", 8),
+        ).pack(fill="x", padx=12, pady=(0, 7))
+
         community = tk.Frame(
             card,
             bg=COLORS["surface_alt"],
@@ -531,6 +598,7 @@ class ArchiveKeyApp(tk.Tk):
         log_border.pack(fill="both", expand=True, padx=17, pady=(0, 17))
         self.log_text = tk.Text(
             log_border,
+            width=1,
             state="disabled",
             wrap="word",
             bg=COLORS["field"],
@@ -586,6 +654,7 @@ class ArchiveKeyApp(tk.Tk):
     def _text_field(self, parent: tk.Widget, placeholder: str) -> tk.Text:
         field = tk.Text(
             parent,
+            width=1,
             height=5,
             wrap="none",
             bg=COLORS["field"],
@@ -696,6 +765,230 @@ class ArchiveKeyApp(tk.Tk):
         selected = filedialog.askdirectory(title="Locate optional legacy tools")
         if selected:
             self.john_var.set(selected)
+
+    @staticmethod
+    def _application_state_directory() -> Path:
+        return Path.home() / ".archivekey"
+
+    def _save_settings(self) -> None:
+        try:
+            save_settings(self.settings_path, self.settings)
+        except OSError as exc:
+            self._log(f"ERROR: Could not save update preferences: {exc}")
+
+    def _restore_network_badge(self) -> None:
+        if self.community_enabled_var.get() and self.community_pack_current:
+            self._set_network_badge("ONLINE PACK  •  READY", COLORS["cyan"])
+        else:
+            self._set_network_badge("PRIVATE  •  OFFLINE", COLORS["success"])
+
+    def _initialize_update_checks(self) -> None:
+        if "automatic_update_checks" not in self.settings:
+            allow = messagebox.askyesno(
+                "Automatic update checks",
+                "Allow ArchiveKey to check its official GitHub releases once every 24 hours?\n\n"
+                "Only the installed ArchiveKey version is sent. Archive names, clues, candidates, "
+                "and passwords are never uploaded. You can change this setting at any time.",
+            )
+            self.settings["automatic_update_checks"] = allow
+            self.automatic_update_var.set(allow)
+            self._save_settings()
+        if should_check_automatically(self.settings):
+            self._check_for_updates(manual=False)
+        self._schedule_automatic_update_check()
+
+    def _schedule_automatic_update_check(self) -> None:
+        if self.update_timer_id is not None:
+            self.after_cancel(self.update_timer_id)
+            self.update_timer_id = None
+        if self.settings.get("automatic_update_checks") is True:
+            self.update_timer_id = self.after(60 * 60 * 1000, self._periodic_update_check)
+
+    def _periodic_update_check(self) -> None:
+        self.update_timer_id = None
+        if should_check_automatically(self.settings):
+            self._check_for_updates(manual=False)
+        self._schedule_automatic_update_check()
+
+    def _toggle_automatic_update_checks(self) -> None:
+        enabled = self.automatic_update_var.get()
+        self.settings["automatic_update_checks"] = enabled
+        self._save_settings()
+        if enabled:
+            self._check_for_updates(manual=False)
+        else:
+            self.update_status_var.set(
+                f"Version {__version__} · automatic checks disabled"
+            )
+        self._schedule_automatic_update_check()
+
+    def _check_for_updates(self, manual: bool = False) -> None:
+        if self.update_worker and self.update_worker.is_alive():
+            return
+        self.update_check_button.configure(state="disabled", text="Checking…")
+        self.update_status_var.set("Checking official GitHub releases…")
+        self._set_network_badge("ONLINE  •  CHECKING UPDATE", COLORS["cyan"])
+        self._log("Checking GitHub for a newer signed ArchiveKey release.")
+
+        self.settings["last_update_check"] = time.time()
+        self._save_settings()
+
+        def work() -> None:
+            try:
+                release = fetch_newer_release(__version__)
+                self.events.put(("update_check_done", (release, manual)))
+            except Exception as exc:
+                self.events.put(("update_check_error", (str(exc), manual)))
+
+        self.update_worker = threading.Thread(
+            target=work,
+            daemon=True,
+            name="archivekey-update-check",
+        )
+        self.update_worker.start()
+
+    def _offer_update(self, release: ReleaseInfo) -> None:
+        notes = release.notes.strip()
+        if len(notes) > 900:
+            notes = notes[:897].rstrip() + "…"
+        if release.supports_automatic_install:
+            install = messagebox.askyesno(
+                "ArchiveKey update available",
+                f"ArchiveKey {release.version} is available.\n\n"
+                f"{notes or 'Open the release page for details.'}\n\n"
+                "Download the cryptographically signed installer now?",
+            )
+            if install:
+                self._download_update(release)
+        else:
+            open_page = messagebox.askyesno(
+                "Update requires manual installation",
+                f"ArchiveKey {release.version} is available, but the release does not include "
+                "both a valid GitHub SHA-256 digest and ArchiveKey signature. Automatic "
+                "installation is blocked.\n\n"
+                "Open the official GitHub release page?",
+            )
+            if open_page:
+                webbrowser.open(release.page_url, new=2)
+
+    def _download_update(self, release: ReleaseInfo) -> None:
+        if self.update_worker and self.update_worker.is_alive():
+            return
+        self.update_check_button.configure(state="disabled", text="Downloading…")
+        self.update_status_var.set(
+            f"Downloading and verifying ArchiveKey {release.version}…"
+        )
+        update_directory = self._application_state_directory() / "updates"
+        public_key = resource_path("assets/archivekey-update-public.pem")
+
+        def work() -> None:
+            try:
+                installer = download_verified_installer(
+                    release,
+                    update_directory,
+                    public_key,
+                )
+                self.events.put(("update_download_done", (installer, release)))
+            except Exception as exc:
+                self.events.put(("update_download_error", str(exc)))
+
+        self.update_worker = threading.Thread(
+            target=work,
+            daemon=True,
+            name="archivekey-update-download",
+        )
+        self.update_worker.start()
+
+    def _install_verified_update(self, installer: Path, release: ReleaseInfo) -> None:
+        proceed = messagebox.askyesno(
+            "Verified update ready",
+            f"ArchiveKey {release.version} passed SHA-256 and Ed25519 verification.\n\n"
+            "ArchiveKey will close, update, and reopen automatically. Continue?",
+        )
+        if not proceed:
+            self.update_status_var.set(
+                f"ArchiveKey {release.version} downloaded · installation postponed"
+            )
+            return
+        if sys.platform != "win32" or not getattr(sys, "frozen", False):
+            messagebox.showinfo(
+                "Installer ready",
+                f"Automatic replacement is available in the installed Windows application.\n\n"
+                f"Installer:\n{installer}",
+            )
+            if sys.platform == "win32":
+                os.startfile(str(installer))
+            return
+
+        update_directory = self._application_state_directory() / "updates"
+        helper = update_directory / f"ArchiveKey-update-helper-{int(time.time())}.exe"
+        try:
+            shutil.copy2(sys.executable, helper)
+            creation_flags = subprocess.CREATE_NO_WINDOW
+            subprocess.Popen(
+                [
+                    str(helper),
+                    "--apply-update",
+                    str(os.getpid()),
+                    str(installer),
+                    str(Path(sys.executable).resolve()),
+                    release.version,
+                ],
+                close_fds=True,
+                creationflags=creation_flags,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            self.update_status_var.set("Could not start the verified installer")
+            messagebox.showerror("Update could not start", str(exc))
+            return
+
+        self.update_status_var.set("Closing ArchiveKey to install the update…")
+        self.after(500, self.destroy)
+
+    def _show_update_result(self) -> None:
+        state_directory = self._application_state_directory()
+        complete = state_directory / "update-complete.json"
+        failed = state_directory / "update-error.json"
+        if complete.is_file():
+            result = load_settings(complete)
+            try:
+                complete.unlink()
+            except OSError:
+                pass
+            version = str(result.get("version") or __version__)
+            self.update_status_var.set(f"Updated successfully to ArchiveKey {version}")
+            messagebox.showinfo(
+                "Thank you for updating",
+                f"ArchiveKey {version} was installed successfully.\n\n"
+                "Thank you for supporting ArchiveKey and helping improve private, authorized recovery.",
+            )
+            self.after(2000, self._cleanup_update_files)
+        elif failed.is_file():
+            result = load_settings(failed)
+            try:
+                failed.unlink()
+            except OSError:
+                pass
+            messagebox.showerror(
+                "Update installation failed",
+                f"Windows Installer returned exit code {result.get('exit_code', 'unknown')}.\n\n"
+                "The previous ArchiveKey installation remains available.",
+            )
+
+    def _cleanup_update_files(self) -> None:
+        update_directory = self._application_state_directory() / "updates"
+        if not update_directory.is_dir():
+            return
+        for pattern in (
+            "ArchiveKey-update-helper-*.exe",
+            "ArchiveKey-*-x64.msi",
+            "ArchiveKey-*-x64.msi.sig",
+        ):
+            for path in update_directory.glob(pattern):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
 
     @staticmethod
     def _community_cache_path() -> Path:
@@ -1021,6 +1314,71 @@ class ArchiveKeyApp(tk.Tk):
                         f"ArchiveKey could not download the public GitHub pack.\n\n{payload}\n\n"
                         "No archive or hint data was uploaded.",
                     )
+                elif kind == "update_check_done":
+                    release, manual = payload
+                    self.update_check_button.configure(state="normal", text="Check now")
+                    self._restore_network_badge()
+                    if release is None:
+                        self.update_status_var.set(
+                            f"ArchiveKey {__version__} is up to date"
+                        )
+                        self._log("ArchiveKey is up to date.")
+                        if manual:
+                            messagebox.showinfo(
+                                "ArchiveKey is up to date",
+                                f"Version {__version__} is the newest official release.",
+                            )
+                    else:
+                        self.available_release = release
+                        signature_state = (
+                            "signed automatic update"
+                            if release.supports_automatic_install
+                            else "manual installation required"
+                        )
+                        self.update_status_var.set(
+                            f"ArchiveKey {release.version} available · {signature_state}"
+                        )
+                        self._log(
+                            f"ArchiveKey {release.version} is available ({signature_state})."
+                        )
+                        previously_notified = self.settings.get("last_notified_version")
+                        if manual or previously_notified != release.version:
+                            self.settings["last_notified_version"] = release.version
+                            self._save_settings()
+                            self._offer_update(release)
+                elif kind == "update_check_error":
+                    error_text, manual = payload
+                    self.update_check_button.configure(state="normal", text="Check now")
+                    self._restore_network_badge()
+                    self.update_status_var.set("Update check failed · working offline")
+                    self._log(f"ERROR: Update check failed: {error_text}")
+                    if manual:
+                        messagebox.showerror(
+                            "Update check failed",
+                            f"ArchiveKey could not check GitHub.\n\n{error_text}\n\n"
+                            "Archive recovery remains fully available offline.",
+                        )
+                elif kind == "update_download_done":
+                    installer, release = payload
+                    self.update_check_button.configure(state="normal", text="Check now")
+                    self._restore_network_badge()
+                    self.update_status_var.set(
+                        f"ArchiveKey {release.version} downloaded and verified"
+                    )
+                    self._log(
+                        f"ArchiveKey {release.version} passed SHA-256 and Ed25519 verification."
+                    )
+                    self._install_verified_update(installer, release)
+                elif kind == "update_download_error":
+                    self.update_check_button.configure(state="normal", text="Check now")
+                    self._restore_network_badge()
+                    self.update_status_var.set("Update verification failed · installation blocked")
+                    self._log(f"ERROR: Update download blocked: {payload}")
+                    messagebox.showerror(
+                        "Update blocked",
+                        f"ArchiveKey refused to install the update.\n\n{payload}\n\n"
+                        "The current installation was not changed.",
+                    )
                 elif kind == "error":
                     self._set_running(False)
                     self.status_var.set("Recovery stopped")
@@ -1075,6 +1433,20 @@ class ArchiveKeyApp(tk.Tk):
 
 
 def main() -> None:
+    if len(sys.argv) == 6 and sys.argv[1] == "--apply-update":
+        try:
+            parent_pid = int(sys.argv[2])
+        except ValueError:
+            raise SystemExit(4)
+        exit_code = run_update_helper(
+            parent_pid,
+            Path(sys.argv[3]),
+            Path(sys.argv[4]),
+            sys.argv[5],
+            Path.home() / ".archivekey",
+            resource_path("assets/archivekey-update-public.pem"),
+        )
+        raise SystemExit(exit_code)
     if sys.platform == "win32":
         try:
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
